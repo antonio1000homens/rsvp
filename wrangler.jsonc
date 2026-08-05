@@ -1,0 +1,18 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "rsvp-edge",
+  "main": "cloudflare/worker.mjs",
+  "compatibility_date": "2026-08-04",
+  "account_id": "621c4fdc4eb5b80534b779e6c65e6a54",
+  "workers_dev": false,
+  "routes": [
+    {
+      "pattern": "calcada2026.pt",
+      "custom_domain": true
+    },
+    {
+      "pattern": "www.calcada2026.pt",
+      "custom_domain": true
+    }
+  ]
+}

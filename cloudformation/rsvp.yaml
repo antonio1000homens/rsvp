@@ -1,0 +1,245 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: RSVP application origin (private site bucket, DynamoDB table, Lambda, and Function URL)
+
+Parameters:
+  CodeBucket:
+    Type: String
+    Default: aws2022-lambda-code
+    Description: Existing bucket containing versioned Lambda artifacts.
+  FunctionCodeKey:
+    Type: String
+    Description: S3 key for the RSVP Lambda ZIP.
+  SiteBucketName:
+    Type: String
+    Default: rsvp-243857182133-eu-west-2-site
+  TableName:
+    Type: String
+    Default: rsvp
+  FunctionName:
+    Type: String
+    Default: rsvp-app
+  ContactLookupIndexName:
+    Type: String
+    Default: contactLookup-index
+  OriginSecretParameter:
+    Type: String
+    Default: /rsvp/origin-secret
+  SessionSecretParameter:
+    Type: String
+    Default: /rsvp/session-secret
+  ContactPepperParameter:
+    Type: String
+    Default: /rsvp/contact-pepper
+
+Resources:
+  SiteBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Ref SiteBucketName
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      LifecycleConfiguration:
+        Rules:
+          - Id: AbortIncompleteMultipartUploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      Tags:
+        - Key: Application
+          Value: rsvp
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  RsvpTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Ref TableName
+      BillingMode: PROVISIONED
+      ProvisionedThroughput:
+        ReadCapacityUnits: 1
+        WriteCapacityUnits: 1
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+        - AttributeName: contactLookup
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: !Ref ContactLookupIndexName
+          KeySchema:
+            - AttributeName: contactLookup
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
+          ProvisionedThroughput:
+            ReadCapacityUnits: 1
+            WriteCapacityUnits: 1
+      DeletionProtectionEnabled: true
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: false
+      SSESpecification:
+        SSEEnabled: true
+      TimeToLiveSpecification:
+        AttributeName: expiresAt
+        Enabled: true
+      Tags:
+        - Key: Application
+          Value: rsvp
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  RsvpLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${FunctionName}
+      RetentionInDays: 7
+      Tags:
+        - Key: Application
+          Value: rsvp
+
+  RsvpFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: RsvpApplicationAccess
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ReadSiteBucket
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource: !Sub ${SiteBucket.Arn}/*
+              - Sid: ListSiteBucket
+                Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: !GetAtt SiteBucket.Arn
+              - Sid: UseRsvpTable
+                Effect: Allow
+                Action:
+                  - dynamodb:DeleteItem
+                  - dynamodb:GetItem
+                  - dynamodb:PutItem
+                  - dynamodb:Query
+                  - dynamodb:Scan
+                  - dynamodb:UpdateItem
+                Resource:
+                  - !GetAtt RsvpTable.Arn
+                  - !Sub ${RsvpTable.Arn}/index/${ContactLookupIndexName}
+              - Sid: ReadRsvpSecrets
+                Effect: Allow
+                Action:
+                  - ssm:GetParameter
+                Resource:
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${OriginSecretParameter}
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${SessionSecretParameter}
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${ContactPepperParameter}
+              - Sid: WriteFunctionLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !GetAtt RsvpLogGroup.Arn
+
+  RsvpFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: RsvpLogGroup
+    Properties:
+      FunctionName: !Ref FunctionName
+      Runtime: nodejs24.x
+      Architectures:
+        - arm64
+      Handler: index.handler
+      Role: !GetAtt RsvpFunctionRole.Arn
+      Timeout: 15
+      MemorySize: 256
+      ReservedConcurrentExecutions: 5
+      Code:
+        S3Bucket: !Ref CodeBucket
+        S3Key: !Ref FunctionCodeKey
+      Environment:
+        Variables:
+          SITE_BUCKET: !Ref SiteBucket
+          RSVP_TABLE: !Ref RsvpTable
+          CONTACT_LOOKUP_INDEX: !Ref ContactLookupIndexName
+          ORIGIN_SECRET_PARAMETER: !Ref OriginSecretParameter
+          SESSION_SECRET_PARAMETER: !Ref SessionSecretParameter
+          CONTACT_PEPPER_PARAMETER: !Ref ContactPepperParameter
+      Tags:
+        - Key: Application
+          Value: rsvp
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  RsvpFunctionUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      TargetFunctionArn: !Ref RsvpFunction
+      AuthType: NONE
+      InvokeMode: BUFFERED
+
+  RsvpFunctionUrlInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref RsvpFunction
+      Principal: '*'
+      Action: lambda:InvokeFunctionUrl
+      FunctionUrlAuthType: NONE
+
+  RsvpFunctionInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref RsvpFunction
+      Principal: '*'
+      Action: lambda:InvokeFunction
+      InvokedViaFunctionUrl: true
+
+Outputs:
+  SiteBucketName:
+    Description: Private bucket holding the built website.
+    Value: !Ref SiteBucket
+  SiteBucketArn:
+    Value: !GetAtt SiteBucket.Arn
+  TableName:
+    Value: !Ref RsvpTable
+  TableArn:
+    Value: !GetAtt RsvpTable.Arn
+  ContactLookupIndexName:
+    Value: !Ref ContactLookupIndexName
+  FunctionName:
+    Value: !Ref RsvpFunction
+  FunctionArn:
+    Value: !GetAtt RsvpFunction.Arn
+  FunctionUrl:
+    Value: !GetAtt RsvpFunctionUrl.FunctionUrl
+  FunctionRoleArn:
+    Value: !GetAtt RsvpFunctionRole.Arn
+

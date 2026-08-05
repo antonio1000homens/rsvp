@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="referrer" content="no-referrer">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Dinner RSVP</title>
+    <link rel="stylesheet" href="/__APP_CSS__">
+  </head>
+  <body>
+    <main class="card">
+      <p class="eyebrow">You’re invited</p>
+      <h1>Dinner RSVP</h1>
+      <p class="intro">Use the contact detail and private passphrase from your invitation.</p>
+
+      <form id="login-form" novalidate>
+        <label for="contact">Email or phone number</label>
+        <input id="contact" name="contact" autocomplete="username" required>
+
+        <label for="passphrase">Passphrase</label>
+        <input id="passphrase" name="passphrase" type="password" autocomplete="current-password" required>
+
+        <button type="submit">View my RSVP</button>
+        <p id="status" class="status" role="status" aria-live="polite"></p>
+      </form>
+    </main>
+    <script type="module" src="/__APP_JS__"></script>
+  </body>
+</html>
+

@@ -1,0 +1,75 @@
+name: Validate and deploy RSVP to AWS
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions: {}
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Use Node.js 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Build and test
+        run: |
+          npm run build
+          npm test
+          npm run check:shell
+      - name: Validate CloudFormation templates
+        run: |
+          python3 -m pip install --disable-pip-version-check cfn-lint==1.53.3
+          cfn-lint cloudformation/rsvp.yaml cloudformation/bootstrap-github.yaml
+
+  deploy:
+    if: github.ref == 'refs/heads/master' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: production
+    concurrency:
+      group: rsvp-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: eu-west-2
+      AWS_ROLE_TO_ASSUME: ${{ vars.AWS_ROLE_TO_ASSUME }}
+      AWS_CLOUDFORMATION_ROLE_ARN: ${{ vars.AWS_CLOUDFORMATION_ROLE_ARN }}
+      CODE_BUCKET: ${{ vars.CODE_BUCKET || 'aws2022-lambda-code' }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Use Node.js 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Configure short-lived AWS credentials
+        uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7 # v6.0.0
+        with:
+          role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
+          role-session-name: github-actions-rsvp-deploy
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Validate template with AWS
+        run: aws cloudformation validate-template --template-body file://cloudformation/rsvp.yaml >/dev/null
+      - name: Deploy application stack
+        run: bash scripts/deploy-aws.sh
+      - name: Verify deployed resources
+        run: bash scripts/verify-aws.sh

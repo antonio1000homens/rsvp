@@ -1,0 +1,29 @@
+{
+  "name": "rsvp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "npm run clean && npm run build:frontend && npm run build:lambda",
+    "build:frontend": "node scripts/build-frontend.mjs",
+    "build:lambda": "esbuild lambda/index.mjs --bundle --platform=node --target=node24 --format=esm --outfile=dist/lambda/index.mjs --external:@aws-sdk/*",
+    "clean": "node scripts/clean.mjs",
+    "test": "node --test test/*.test.mjs",
+    "check:shell": "bash -n scripts/bootstrap-aws.sh scripts/deploy-aws.sh scripts/deploy-cloudflare.sh scripts/verify-aws.sh scripts/verify-cloudflare.sh",
+    "deploy:cloudflare": "wrangler deploy --config wrangler.jsonc"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.888.0",
+    "@aws-sdk/client-ssm": "^3.888.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.9",
+    "wrangler": "4.118.0"
+  },
+  "overrides": {
+    "undici": "7.29.0"
+  }
+}
