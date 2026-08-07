@@ -99,7 +99,7 @@ AWS_PROFILE=windsor npm run guest:disable
 
 Disabling removes the nickname from the public directory, revokes existing sessions, and retains passkeys so that the guest can be re-enabled later. Keep any private mapping of nicknames to phone numbers outside this public repository.
 
-Friends who are not yet listed use the **Register as a friend** form on the landing page. They enter a name and exactly the last four digits of their phone number. The site creates a five-minute WhatsApp challenge and a QR/deep link containing:
+Friends who are not yet listed use the **Nao encontro o meu nome** form on the landing page. The user fills in **Nome ou alcunha** and **Número completo do telefone**. The phone field must start with `+`, include a non-zero country code, and contain the complete number, for example `+351 912 345 678`. The browser validates this before submission, and the server validates and normalizes it again. The site then creates a five-minute WhatsApp challenge and a QR/deep link containing:
 
 ```text
 VALIDATION <base64url(JSON({"name":"...","number":"1234","nonce":"..."}))> <HMAC-SHA-256 signature>
@@ -117,7 +117,7 @@ Content-Type: application/json
 {"sender":"+351912345678","message":"VALIDATION <base64url-payload> <signature>"}
 ```
 
-The signature is an HMAC-SHA-256 over the exact base64url payload using the private `/rsvp/validation-secret` SecureString. The backend checks the signature before decoding, then checks the nonce, name, last four digits, expiry, and sender format before atomically creating the guest profile and public nickname. Only the contact HMAC is retained; the plaintext number is not stored. Pending registrations are not shown in the public list.
+The signature is an HMAC-SHA-256 over the exact base64url payload using the private `/rsvp/validation-secret` SecureString. The backend checks the signature before decoding, then checks the nonce, name, last four digits derived from the submitted full number, expiry, and sender format before atomically creating the guest profile and public nickname. Only the contact HMAC is retained; the plaintext number is not stored. Pending registrations are not shown in the public list.
 
 ## WhatsApp Business app configuration
 

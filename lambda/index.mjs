@@ -59,6 +59,10 @@ const CAPTCHA_TTL_SECONDS = 15 * 60;
 const LOGIN_MESSAGE = /^LOGIN ([A-Za-z0-9_-]{43}) ([A-Za-z0-9_-]{43})$/;
 const VALIDATION_MESSAGE = /^VALIDATION ([A-Za-z0-9_-]+) ([A-Za-z0-9_-]{43})$/;
 const GUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const TRIVIA_QUESTIONS = Object.freeze([
+  { id: 'policia', question: 'Quem é o polícia?', answers: ['rui', 'checa'] },
+  { id: 'vacas', question: 'Um dos irmãos Vacas', answers: ['rui', 'goncalo'] },
+]);
 
 const jsonResponse = (statusCode, payload, { headers = {}, cookies = [] } = {}) => ({
   statusCode,
@@ -190,6 +194,14 @@ const validGuestId = (value) => {
 const conditionalFailure = (error) =>
   error?.name === 'ConditionalCheckFailedException' || error?.name === 'TransactionCanceledException';
 
+const normalizeTriviaAnswer = (value) => String(value || '').normalize('NFKD')
+  .replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-PT').trim();
+
+export const triviaAnswerMatches = (answer, acceptedAnswers) => {
+  const normalized = normalizeTriviaAnswer(answer);
+  return acceptedAnswers.some((accepted) => normalized.includes(normalizeTriviaAnswer(accepted)));
+};
+
 export const createHandler = ({
   s3 = new S3Client({}),
   ssm = new SSMClient({}),
@@ -299,6 +311,38 @@ export const createHandler = ({
   const readCaptchaGate = async (event) => {
     const token = await readSignedCookie(event, 'rsvp_captcha');
     return token?.type === 'captcha';
+  };
+
+  const readTriviaGate = async (event) => {
+    const token = await readSignedCookie(event, 'rsvp_trivia');
+    return token?.type === 'trivia' && token.answered === true;
+  };
+
+  const requireTriviaGate = async (event) => {
+    if (!(await readCaptchaGate(event))) throw new ApiError(403, 'captcha_required');
+    if (!(await readTriviaGate(event))) throw new ApiError(403, 'trivia_required');
+  };
+
+  const triviaQuestion = async (event) => {
+    await requireCaptchaGate(event);
+    const question = TRIVIA_QUESTIONS[Math.floor(Math.random() * TRIVIA_QUESTIONS.length)];
+    const token = await makeSignedCookie('rsvp_trivia_challenge', {
+      type: 'trivia-challenge', questionId: question.id,
+    }, CAPTCHA_TTL_SECONDS);
+    return jsonResponse(200, { question: question.question, challenge: token });
+  };
+
+  const triviaAnswer = async (event) => {
+    await requireCaptchaGate(event);
+    const body = parseJsonBody(event);
+    const challenge = verifyToken(body.challenge, await getSessionSecret(), now());
+    const question = TRIVIA_QUESTIONS.find((candidate) => candidate.id === challenge?.questionId);
+    if (!question || challenge?.type !== 'trivia-challenge' || !triviaAnswerMatches(body.answer, question.answers)) {
+      throw new ApiError(403, 'trivia_incorrect');
+    }
+    return jsonResponse(200, { verified: true }, {
+      cookies: [await makeSignedCookie('rsvp_trivia', { type: 'trivia', answered: true }, CAPTCHA_TTL_SECONDS)],
+    });
   };
 
   const requireCaptchaGate = async (event) => {
@@ -815,8 +859,11 @@ export const createHandler = ({
       if (!siteKey) throw new ApiError(503, 'captcha_unavailable');
       return jsonResponse(200, { siteKey });
     }
+    if (path === '/api/trivia/question' && method === 'GET') return triviaQuestion(event);
+    if (path === '/api/trivia/answer' && method === 'POST') return triviaAnswer(event);
     if (path === '/api/guests' && method === 'GET') {
-      const captchaCookies = await requireCaptchaGate(event);
+      await requireTriviaGate(event);
+      const captchaCookies = [];
       const response = await listGuests();
       if (captchaCookies.length > 0) response.cookies = captchaCookies;
       return response;

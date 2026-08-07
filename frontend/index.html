@@ -18,6 +18,12 @@
         <p class="intro">Complete a verificação de segurança e escolha o seu nome.</p>
         <div id="captcha" class="captcha" aria-label="Verificação de segurança"></div>
         <p id="captcha-status" class="status" role="status" aria-live="polite">A carregar a verificação de segurança…</p>
+        <form id="trivia-form" hidden>
+          <label for="trivia-answer" id="trivia-question"></label>
+          <input id="trivia-answer" name="answer" required autocomplete="off">
+          <button type="submit">Mostrar nomes</button>
+        </form>
+        <p id="trivia-status" class="status" role="status" aria-live="polite"></p>
         <div id="guest-list" class="guest-list" aria-live="polite"></div>
         <hr>
         <h2>Nao encontro o meu nome</h2>

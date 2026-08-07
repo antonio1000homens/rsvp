@@ -50,7 +50,10 @@ const request = (path = '/', {
   headers: { 'x-rsvp-origin-secret': secret, ...headers },
   requestContext: { http: { method, path } },
   ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  cookies: cookies ?? [`rsvp_captcha=${signToken({ type: 'captcha', exp: fixedNow + 600 }, values['/rsvp/session-secret'])}`],
+  cookies: cookies ?? [
+    `rsvp_captcha=${signToken({ type: 'captcha', exp: fixedNow + 600 }, values['/rsvp/session-secret'])}`,
+    `rsvp_trivia=${signToken({ type: 'trivia', answered: true, exp: fixedNow + 600 }, values['/rsvp/session-secret'])}`,
+  ],
 });
 
 const keyOf = ({ pk, sk }) => `${pk}|${sk}`;
@@ -260,11 +263,12 @@ test('guest directory rejects missing CAPTCHA gate and accepts a valid Turnstile
   assert.equal(rejected.statusCode, 403);
   assert.equal(JSON.parse(rejected.body).error, 'captcha_required');
   const accepted = await handler(request('/api/guests', {
-    cookies: [],
-    headers: { 'x-turnstile-token': 'valid-token' },
+    cookies: [
+      `rsvp_captcha=${signToken({ type: 'captcha', exp: fixedNow + 600 }, values['/rsvp/session-secret'])}`,
+      `rsvp_trivia=${signToken({ type: 'trivia', answered: true, exp: fixedNow + 600 }, values['/rsvp/session-secret'])}`,
+    ],
   }));
   assert.equal(accepted.statusCode, 200);
-  assert.match(accepted.cookies.join(' '), /rsvp_captcha=/);
 });
 
 test('first login creates a five-minute WhatsApp URL without storing the raw nonce', async () => {

@@ -6,6 +6,10 @@ const elements = {
   guestList: document.querySelector('#guest-list'),
   captcha: document.querySelector('#captcha'),
   captchaStatus: document.querySelector('#captcha-status'),
+  triviaForm: document.querySelector('#trivia-form'),
+  triviaQuestion: document.querySelector('#trivia-question'),
+  triviaAnswer: document.querySelector('#trivia-answer'),
+  triviaStatus: document.querySelector('#trivia-status'),
   flowSection: document.querySelector('#flow-section'),
   selectedName: document.querySelector('#selected-name'),
   status: document.querySelector('#status'),
@@ -27,6 +31,7 @@ const elements = {
 
 let selectedGuest = null;
 let pollGeneration = 0;
+let triviaChallenge = '';
 
 const api = async (path, options = {}) => {
   const response = await fetch(path, {
@@ -233,6 +238,35 @@ const loadGuests = async (turnstileToken = '') => {
   }
 };
 
+const loadTriviaQuestion = async (turnstileToken) => {
+  try {
+    const result = await api('/api/trivia/question', {
+      headers: { 'x-turnstile-token': turnstileToken },
+    });
+    triviaChallenge = result.challenge;
+    elements.triviaQuestion.textContent = result.question;
+    elements.triviaForm.hidden = false;
+    elements.triviaAnswer.focus();
+  } catch {
+    elements.triviaStatus.textContent = 'Não foi possível carregar a pergunta. Tente novamente mais tarde.';
+  }
+};
+
+const answerTrivia = async (event) => {
+  event.preventDefault();
+  elements.triviaStatus.textContent = 'A validar a resposta…';
+  try {
+    await post('/api/trivia/answer', { challenge: triviaChallenge, answer: elements.triviaAnswer.value });
+    elements.triviaForm.hidden = true;
+    elements.triviaStatus.textContent = 'Resposta correta.';
+    await loadGuests();
+  } catch (error) {
+    elements.triviaStatus.textContent = error.code === 'trivia_incorrect'
+      ? 'Resposta incorreta. Tente novamente.'
+      : 'Não foi possível validar a resposta. Tente novamente.';
+  }
+};
+
 const loadTurnstile = async () => {
   const config = await api('/api/captcha/config');
   await new Promise((resolve, reject) => {
@@ -251,7 +285,7 @@ const loadTurnstile = async () => {
       action: 'guest-directory',
       callback: async (token) => {
         elements.captchaStatus.textContent = 'Verificação de segurança concluída.';
-        await loadGuests(token);
+        await loadTriviaQuestion(token);
         resolve();
       },
       'expired-callback': () => {
@@ -283,6 +317,7 @@ elements.logout.addEventListener('click', async () => {
   await loadGuests();
 });
 elements.registrationForm.addEventListener('submit', startFriendRegistration);
+elements.triviaForm.addEventListener('submit', answerTrivia);
 
 const initialize = async () => {
   try {
