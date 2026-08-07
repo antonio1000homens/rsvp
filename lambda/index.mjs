@@ -326,10 +326,11 @@ export const createHandler = ({
   const triviaQuestion = async (event) => {
     await requireCaptchaGate(event);
     const question = TRIVIA_QUESTIONS[Math.floor(Math.random() * TRIVIA_QUESTIONS.length)];
-    const token = await makeSignedCookie('rsvp_trivia_challenge', {
+    const cookie = await makeSignedCookie('rsvp_trivia_challenge', {
       type: 'trivia-challenge', questionId: question.id,
     }, CAPTCHA_TTL_SECONDS);
-    return jsonResponse(200, { question: question.question, challenge: token });
+    const challenge = cookie.slice(cookie.indexOf('=') + 1, cookie.indexOf(';'));
+    return jsonResponse(200, { question: question.question, challenge });
   };
 
   const triviaAnswer = async (event) => {
