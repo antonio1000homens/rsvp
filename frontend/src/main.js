@@ -36,7 +36,7 @@ const api = async (path, options = {}) => {
   });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const error = new Error(body.message || 'Request failed.');
+    const error = new Error(body.message || 'O pedido falhou.');
     error.code = body.error;
     error.status = response.status;
     throw error;
@@ -59,7 +59,7 @@ const showFlow = () => {
   elements.guestSection.hidden = true;
   elements.sessionSection.hidden = true;
   elements.flowSection.hidden = false;
-  elements.selectedName.textContent = selectedGuest?.nickname || 'Novo Calceteiro';
+  elements.selectedName.textContent = selectedGuest?.nickname || 'Novo registo';
   elements.whatsappPanel.hidden = true;
   elements.actions.hidden = false;
   elements.createPasskey.hidden = true;
@@ -70,8 +70,8 @@ const showRegistrationWhatsapp = async (result) => {
   const generation = ++pollGeneration;
   elements.guestSection.hidden = true;
   elements.flowSection.hidden = false;
-  elements.selectedName.textContent = 'Novo Calceteiro:';
-  elements.status.textContent = 'Waiting for WhatsApp verification…';
+  elements.selectedName.textContent = 'Novo registo';
+  elements.status.textContent = 'A aguardar a verificação pelo WhatsApp…';
   elements.whatsappPanel.hidden = false;
   elements.actions.hidden = true;
   elements.whatsappLink.href = result.whatsappUrl;
@@ -82,12 +82,12 @@ const showRegistrationWhatsapp = async (result) => {
       const state = await api('/api/register/status');
       if (state.status === 'created') {
         elements.whatsappPanel.hidden = true;
-        elements.status.textContent = 'Verified. Create your passkey.';
+        elements.status.textContent = 'Verificado. Crie a sua chave de acesso.';
         await registerPasskey();
         return;
       }
-      if (state.status === 'expired') { elements.status.textContent = 'This registration expired. Please start again.'; elements.whatsappPanel.hidden = true; elements.guestSection.hidden = false; return; }
-    } catch { elements.status.textContent = 'Verification status is temporarily unavailable; retrying…'; }
+      if (state.status === 'expired') { elements.status.textContent = 'Este registo expirou. Tente novamente.'; elements.whatsappPanel.hidden = true; elements.guestSection.hidden = false; return; }
+    } catch { elements.status.textContent = 'O estado da verificação está temporariamente indisponível; a tentar novamente…'; }
     window.setTimeout(poll, document.hidden ? 10000 : 3000);
   };
   window.setTimeout(poll, 3000);
@@ -96,23 +96,25 @@ const showRegistrationWhatsapp = async (result) => {
 const startFriendRegistration = async (event) => {
   event.preventDefault();
   const form = new FormData(elements.registrationForm);
-  elements.registrationStatus.textContent = 'Preparing WhatsApp verification…';
+  elements.registrationStatus.textContent = 'A preparar a verificação pelo WhatsApp…';
   try {
     await showRegistrationWhatsapp(await post('/api/register/start', { name: form.get('name'), last4: form.get('last4') }));
   } catch (error) { elements.registrationStatus.textContent = readableError(error); }
 };
 
 const readableError = (error) => {
-  if (error.name === 'NotAllowedError') return 'Passkey use was cancelled or timed out.';
-  if (error.code === 'whatsapp_unavailable') return 'WhatsApp login is not configured yet.';
-  if (error.code === 'authentication_challenge_expired') return 'This login attempt expired. Please try again.';
-  if (error.code === 'passkey_verification_failed') return 'That passkey could not be verified.';
-  return 'Unable to complete authentication. Please try again.';
+  if (error.name === 'NotAllowedError') return 'A utilização da chave de acesso foi cancelada ou expirou.';
+  if (error.code === 'whatsapp_unavailable') return 'O início de sessão pelo WhatsApp ainda não está configurado.';
+  if (error.code === 'authentication_challenge_expired') return 'Esta tentativa de início de sessão expirou. Tente novamente.';
+  if (error.code === 'passkey_verification_failed') return 'Não foi possível verificar essa chave de acesso.';
+  if (error.code === 'invalid_registration') return 'Indique um nome válido e exatamente quatro algarismos do telefone.';
+  if (error.code === 'registration_unavailable') return 'Esse nome ou contacto já está registado.';
+  return 'Não foi possível concluir a autenticação. Tente novamente.';
 };
 
 const showWhatsapp = async (result) => {
   const generation = ++pollGeneration;
-  elements.status.textContent = 'Waiting for WhatsApp verification…';
+  elements.status.textContent = 'A aguardar a verificação pelo WhatsApp…';
   elements.whatsappPanel.hidden = false;
   elements.whatsappRecovery.hidden = true;
   elements.createPasskey.hidden = true;
@@ -130,19 +132,19 @@ const showWhatsapp = async (result) => {
       const state = await api('/api/auth/whatsapp/status');
       if (state.status === 'approved') {
         elements.whatsappPanel.hidden = true;
-        elements.status.textContent = 'Approved. Create a passkey for future visits.';
+        elements.status.textContent = 'Aprovado. Crie uma chave de acesso para futuras visitas.';
         elements.createPasskey.hidden = false;
         await registerPasskey();
         return;
       }
       if (state.status === 'expired') {
-        elements.status.textContent = 'This QR code expired. Start WhatsApp verification again.';
+        elements.status.textContent = 'Este código QR expirou. Inicie novamente a verificação pelo WhatsApp.';
         elements.whatsappPanel.hidden = true;
         elements.whatsappRecovery.hidden = false;
         return;
       }
     } catch {
-      elements.status.textContent = 'Verification status is temporarily unavailable; retrying…';
+      elements.status.textContent = 'O estado da verificação está temporariamente indisponível; a tentar novamente…';
     }
     const delay = document.hidden ? 10000 : 3000;
     window.setTimeout(poll, delay);
@@ -153,7 +155,7 @@ const showWhatsapp = async (result) => {
 const startWhatsappFlow = async () => {
   if (!selectedGuest) return;
   showFlow();
-  elements.status.textContent = 'Preparing WhatsApp verification…';
+  elements.status.textContent = 'A preparar a verificação pelo WhatsApp…';
   try {
     await showWhatsapp(await post('/api/auth/whatsapp/start', { guestId: selectedGuest.id }));
   } catch (error) {
@@ -164,7 +166,7 @@ const startWhatsappFlow = async () => {
 
 const registerPasskey = async () => {
   const targetStatus = elements.sessionSection.hidden ? elements.status : elements.sessionStatus;
-  targetStatus.textContent = 'Creating a passkey…';
+  targetStatus.textContent = 'A criar uma chave de acesso…';
   try {
     const { options } = await post('/api/auth/passkeys/register/options');
     const credential = await startRegistration({ optionsJSON: options });
@@ -177,13 +179,13 @@ const registerPasskey = async () => {
 };
 
 const usePasskey = async (options) => {
-  elements.status.textContent = 'Use your passkey to continue…';
+  elements.status.textContent = 'Utilize a sua chave de acesso para continuar…';
   try {
     const credential = await startAuthentication({ optionsJSON: options });
     const result = await post('/api/auth/passkeys/login/verify', { credential });
     showAuthenticated(result.nickname);
   } catch (error) {
-    elements.status.textContent = `${readableError(error)} You can recover access with WhatsApp.`;
+    elements.status.textContent = `${readableError(error)} Pode recuperar o acesso através do WhatsApp.`;
     elements.whatsappRecovery.hidden = false;
   }
 };
@@ -192,7 +194,7 @@ const selectGuest = async (guest) => {
   selectedGuest = guest;
   pollGeneration += 1;
   showFlow();
-  elements.status.textContent = 'Checking your invitation…';
+  elements.status.textContent = 'A verificar o seu convite…';
   try {
     const result = await post('/api/auth/start', { guestId: guest.id });
     if (result.mode === 'passkey') await usePasskey(result.options);
@@ -210,7 +212,7 @@ const loadGuests = async (turnstileToken = '') => {
       ? { headers: { 'x-turnstile-token': turnstileToken } }
       : {});
     if (guests.length === 0) {
-      elements.guestList.textContent = 'No invitations are available yet.';
+      elements.guestList.textContent = 'Ainda não existem convites disponíveis.';
       return;
     }
     for (const guest of guests) {
@@ -222,7 +224,7 @@ const loadGuests = async (turnstileToken = '') => {
       elements.guestList.append(button);
     }
   } catch {
-    elements.guestList.textContent = 'Unable to load invitations. Please try again later.';
+    elements.guestList.textContent = 'Não foi possível carregar os convites. Tente novamente mais tarde.';
   }
 };
 
@@ -243,16 +245,16 @@ const loadTurnstile = async () => {
       sitekey: config.siteKey,
       action: 'guest-directory',
       callback: async (token) => {
-        elements.captchaStatus.textContent = 'Security check complete.';
+        elements.captchaStatus.textContent = 'Verificação de segurança concluída.';
         await loadGuests(token);
         resolve();
       },
       'expired-callback': () => {
-        elements.captchaStatus.textContent = 'The security check expired. Please complete it again.';
+        elements.captchaStatus.textContent = 'A verificação de segurança expirou. Conclua-a novamente.';
         elements.guestList.replaceChildren();
       },
       'error-callback': () => {
-        elements.captchaStatus.textContent = 'The security check could not be loaded. Please try again later.';
+        elements.captchaStatus.textContent = 'Não foi possível carregar a verificação de segurança. Tente novamente mais tarde.';
         resolve();
       },
     });
@@ -290,7 +292,7 @@ const initialize = async () => {
   try {
     await loadTurnstile();
   } catch {
-    elements.captchaStatus.textContent = 'The security check is not configured yet.';
+    elements.captchaStatus.textContent = 'A verificação de segurança ainda não está configurada.';
   }
 };
 

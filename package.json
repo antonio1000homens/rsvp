@@ -15,6 +15,7 @@
     "check:shell": "bash -n scripts/bootstrap-aws.sh scripts/deploy-aws.sh scripts/deploy-cloudflare.sh scripts/verify-aws.sh scripts/verify-cloudflare.sh",
     "deploy:cloudflare": "wrangler deploy --config wrangler.jsonc",
     "guest:add": "node scripts/guest-admin.mjs add",
+    "guest:seed": "node scripts/guest-admin.mjs seed",
     "guest:list": "node scripts/guest-admin.mjs list",
     "guest:disable": "node scripts/guest-admin.mjs disable",
     "whatsapp:configure": "node scripts/whatsapp-config.mjs configure",

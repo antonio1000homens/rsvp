@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { randomUUID } from 'node:crypto';
+import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import { createInterface } from 'node:readline/promises';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
@@ -25,6 +26,19 @@ const defaultClients = () => ({
 });
 
 const directoryKey = (lookup) => ({ pk: 'DIRECTORY', sk: `NICKNAME#${lookup}` });
+const sleep = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+const sendWithRetry = async (client, command) => {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await client.send(command);
+    } catch (error) {
+      const throttled = error?.name === 'ProvisionedThroughputExceededException' || error?.name === 'ThrottlingException';
+      if (!throttled || attempt >= 7) throw error;
+      await sleep(500 * (attempt + 1));
+    }
+  }
+};
 
 const promptInterface = () => createInterface({ input: process.stdin, output: process.stdout });
 
@@ -189,8 +203,49 @@ export const disableGuest = async ({ ddb, prompt = promptInterface() }) => {
   }
 };
 
+export const seedContacts = async ({ ddb, ssm, file }) => {
+  const contents = await readFile(file, 'utf8');
+  const contacts = contents.split(/\r?\n/).map((line, index) => {
+    if (!line.trim()) return null;
+    const cleanLine = line.trim().replace(/,+\s*$/, '');
+    const separator = cleanLine.lastIndexOf(',');
+    if (separator < 1) throw new Error(`Invalid contact on line ${index + 1}.`);
+    return {
+      name: cleanLine.slice(0, separator).trim(),
+      phone: normalizeE164(cleanLine.slice(separator + 1).trim()),
+    };
+  }).filter(Boolean);
+  const pepper = await readPepper(ssm);
+  const results = [];
+  for (const contact of contacts) {
+    const nickname = normalizeNickname(`${contact.name} — Por confirmar`);
+    const contactLookup = contactLookupFor(contact.phone, pepper);
+    const existingContact = await findByContact(ddb, contactLookup);
+    if (existingContact) {
+      results.push(`${nickname.display}: skipped (phone already seeded)`);
+      continue;
+    }
+    const directory = {
+      ...directoryKey(nickname.lookup), entityType: 'directory', guestId: randomUUID(), nickname: nickname.display,
+    };
+    const createdAt = Math.floor(Date.now() / 1000);
+    const profileItem = {
+      pk: `GUEST#${directory.guestId}`, sk: 'PROFILE', entityType: 'guest', guestId: directory.guestId,
+      nickname: nickname.display, contactLookup, enabled: true, sessionVersion: 1, createdAt,
+    };
+    await sendWithRetry(ddb, new TransactWriteCommand({ TransactItems: [
+      { Put: { TableName: tableName, Item: profileItem, ConditionExpression: 'attribute_not_exists(pk)' } },
+      { Put: { TableName: tableName, Item: directory, ConditionExpression: 'attribute_not_exists(pk)' } },
+      { Put: { TableName: tableName, Item: { pk: `CONTACT#${contactLookup}`, sk: 'LOOKUP', entityType: 'contactLookup', guestId: directory.guestId }, ConditionExpression: 'attribute_not_exists(pk)' } },
+    ] }));
+    results.push(`${nickname.display}: seeded`);
+  }
+  for (const result of results) process.stdout.write(`${result}\n`);
+};
+
 export const main = async (command = process.argv[2], clients = defaultClients()) => {
   if (command === 'add') return addGuest({ ...clients });
+  if (command === 'seed') return seedContacts({ ...clients, file: process.argv[3] });
   if (command === 'list') return listGuests({ ...clients });
   if (command === 'disable') return disableGuest({ ...clients });
   throw new Error('Usage: guest-admin.mjs <add|list|disable>');

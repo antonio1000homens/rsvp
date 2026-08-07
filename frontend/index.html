@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="pt-PT">
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -10,52 +10,52 @@
   </head>
   <body>
     <main class="card">
-      <p class="eyebrow">You’re invited</p>
+      <p class="eyebrow">Está convidado</p>
       <h1>Calçada 2026</h1>
 
       <section id="guest-section">
-        <h2>Already registered</h2>
-        <p class="intro">Complete the security check, then choose your name.</p>
-        <div id="captcha" class="captcha" aria-label="Security check"></div>
-        <p id="captcha-status" class="status" role="status" aria-live="polite">Loading security check…</p>
+        <h2>Já está registado</h2>
+        <p class="intro">Complete a verificação de segurança e escolha o seu nome.</p>
+        <div id="captcha" class="captcha" aria-label="Verificação de segurança"></div>
+        <p id="captcha-status" class="status" role="status" aria-live="polite">A carregar a verificação de segurança…</p>
         <div id="guest-list" class="guest-list" aria-live="polite"></div>
         <hr>
-        <h2>Register as a friend</h2>
-        <p class="intro">Not listed yet? Enter your name and the last four digits of your phone number.</p>
+        <h2>Nao encontro o meu nome</h2>
+        <p class="intro">não apareces na lista? Introduz o nome e os quatro últimos algarismos do número no whatsapp.</p>
         <form id="registration-form" class="registration-form">
-          <label for="registration-name">Name or nickname</label>
+          <label for="registration-name">Nome ou alcunha</label>
           <input id="registration-name" name="name" maxlength="60" required autocomplete="name">
-          <label for="registration-last4">Last 4 phone digits</label>
+          <label for="registration-last4">Quatro últimos algarismos do telefone</label>
           <input id="registration-last4" name="last4" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" required>
-          <button type="submit">Verify with WhatsApp</button>
+          <button type="submit">Verificar com o WhatsApp</button>
         </form>
         <p id="registration-status" class="status" role="status" aria-live="polite"></p>
       </section>
 
       <section id="flow-section" hidden>
-        <button id="back-button" class="text-button" type="button">← Choose another name</button>
+        <button id="back-button" class="text-button" type="button">← Escolher outro nome</button>
         <h2 id="selected-name"></h2>
         <p id="status" class="status" role="status" aria-live="polite"></p>
 
         <div id="whatsapp-panel" class="whatsapp-panel" hidden>
-          <p>Scan this QR code with the phone using your whitelisted WhatsApp number.</p>
-          <canvas id="qr-code" role="img" aria-label="WhatsApp login QR code"></canvas>
-          <a id="whatsapp-link" class="primary-link" rel="noreferrer">Open WhatsApp on this device</a>
-          <p class="fine-print">Send the pre-filled message unchanged, then wait for the host to approve it.</p>
+          <p>Leia este código QR com o telefone que utiliza o seu número WhatsApp autorizado.</p>
+          <canvas id="qr-code" role="img" aria-label="Código QR de início de sessão do WhatsApp"></canvas>
+          <a id="whatsapp-link" class="primary-link" rel="noreferrer">Abrir o WhatsApp neste dispositivo</a>
+          <p class="fine-print">Envie a mensagem pré-preenchida sem alterações e aguarde a aprovação do anfitrião.</p>
         </div>
 
         <div id="actions" class="actions" hidden>
-          <button id="create-passkey" type="button" hidden>Create passkey</button>
-          <button id="whatsapp-recovery" class="secondary" type="button" hidden>Verify with WhatsApp</button>
+          <button id="create-passkey" type="button" hidden>Criar chave de acesso</button>
+          <button id="whatsapp-recovery" class="secondary" type="button" hidden>Verificar com o WhatsApp</button>
         </div>
       </section>
 
       <section id="session-section" hidden>
-        <p class="intro">Signed in as <strong id="session-name"></strong>.</p>
-        <p>Your identity is verified. RSVP questions will be added in the next phase.</p>
+        <p class="intro">Sessão iniciada como <strong id="session-name"></strong>.</p>
+        <p>A sua identidade foi verificada. As perguntas do RSVP serão adicionadas numa próxima fase.</p>
         <div class="actions">
-          <button id="add-passkey" type="button">Add another passkey</button>
-          <button id="logout" class="secondary" type="button">Sign out</button>
+          <button id="add-passkey" type="button">Adicionar outra chave de acesso</button>
+          <button id="logout" class="secondary" type="button">Terminar sessão</button>
         </div>
         <p id="session-status" class="status" role="status" aria-live="polite"></p>
       </section>
