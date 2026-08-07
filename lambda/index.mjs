@@ -324,13 +324,13 @@ export const createHandler = ({
   };
 
   const triviaQuestion = async (event) => {
-    await requireCaptchaGate(event);
+    const captchaCookies = await requireCaptchaGate(event);
     const question = TRIVIA_QUESTIONS[Math.floor(Math.random() * TRIVIA_QUESTIONS.length)];
     const cookie = await makeSignedCookie('rsvp_trivia_challenge', {
       type: 'trivia-challenge', questionId: question.id,
     }, CAPTCHA_TTL_SECONDS);
     const challenge = cookie.slice(cookie.indexOf('=') + 1, cookie.indexOf(';'));
-    return jsonResponse(200, { question: question.question, challenge });
+    return jsonResponse(200, { question: question.question, challenge }, { cookies: captchaCookies });
   };
 
   const triviaAnswer = async (event) => {
