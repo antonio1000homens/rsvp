@@ -96,9 +96,14 @@ const showRegistrationWhatsapp = async (result) => {
 const startFriendRegistration = async (event) => {
   event.preventDefault();
   const form = new FormData(elements.registrationForm);
+  const phone = String(form.get('phone') || '').trim();
+  if (!/^\+[1-9][0-9 ()-]{7,20}$/.test(phone)) {
+    elements.registrationStatus.textContent = 'Indique o número completo com + e código do país, por exemplo +351 912 345 678.';
+    return;
+  }
   elements.registrationStatus.textContent = 'A preparar a verificação pelo WhatsApp…';
   try {
-    await showRegistrationWhatsapp(await post('/api/register/start', { name: form.get('name'), last4: form.get('last4') }));
+    await showRegistrationWhatsapp(await post('/api/register/start', { name: form.get('name'), phone }));
   } catch (error) { elements.registrationStatus.textContent = readableError(error); }
 };
 
@@ -107,7 +112,7 @@ const readableError = (error) => {
   if (error.code === 'whatsapp_unavailable') return 'O início de sessão pelo WhatsApp ainda não está configurado.';
   if (error.code === 'authentication_challenge_expired') return 'Esta tentativa de início de sessão expirou. Tente novamente.';
   if (error.code === 'passkey_verification_failed') return 'Não foi possível verificar essa chave de acesso.';
-  if (error.code === 'invalid_registration') return 'Indique um nome válido e exatamente quatro algarismos do telefone.';
+  if (error.code === 'invalid_registration') return 'Indique um nome válido e um número completo com + e código do país.';
   if (error.code === 'registration_unavailable') return 'Esse nome ou contacto já está registado.';
   return 'Não foi possível concluir a autenticação. Tente novamente.';
 };

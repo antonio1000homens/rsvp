@@ -495,10 +495,10 @@ export const createHandler = ({
     await requireCaptchaGate(event);
     const body = parseJsonBody(event);
     let nickname;
-    let last4;
+    let phone;
     try {
       nickname = normalizeNickname(body.name);
-      last4 = normalizePhoneLast4(body.last4);
+      phone = normalizeE164(body.phone);
     } catch (error) {
       throw new ApiError(400, 'invalid_registration', error.message);
     }
@@ -512,7 +512,7 @@ export const createHandler = ({
         entityType: 'registrationChallenge',
         nickname: nickname.display,
         nicknameLookup: nickname.lookup,
-        last4,
+        last4: phone.slice(-4),
         status: 'pending',
         expiresAt,
         createdAt: now(),
