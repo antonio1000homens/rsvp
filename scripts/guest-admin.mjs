@@ -81,6 +81,7 @@ export const addGuest = async ({ ddb, ssm, prompt = promptInterface() }) => {
       entityType: 'directory',
       guestId,
       nickname: nickname.display,
+      identityStatus: existingContact?.identityStatus || 'unconfirmed',
     };
 
     const profileItem = {
@@ -90,6 +91,7 @@ export const addGuest = async ({ ddb, ssm, prompt = promptInterface() }) => {
       guestId,
       nickname: nickname.display,
       contactLookup,
+      identityStatus: existingContact?.identityStatus || 'unconfirmed',
       enabled: true,
       sessionVersion: Number(existingContact?.sessionVersion || 1),
       createdAt: existingContact?.createdAt || createdAt,
@@ -222,16 +224,32 @@ export const seedContacts = async ({ ddb, ssm, file }) => {
     const contactLookup = contactLookupFor(contact.phone, pepper);
     const existingContact = await findByContact(ddb, contactLookup);
     if (existingContact) {
-      results.push(`${nickname.display}: skipped (phone already seeded)`);
+      if (existingContact.identityStatus !== 'confirmed') {
+        const oldDisplay = existingContact.nickname.replace(/ — Por confirmar$/, '');
+        const oldDirectory = directoryKey(normalizeNickname(existingContact.nickname).lookup);
+        const newNickname = normalizeNickname(contact.name);
+        const newDirectory = { ...directoryKey(newNickname.lookup), entityType: 'directory', guestId: existingContact.guestId, nickname: newNickname.display, identityStatus: 'unconfirmed' };
+        const directoryItems = oldDirectory.sk === newDirectory.sk
+          ? [{ Update: { TableName: tableName, Key: oldDirectory, UpdateExpression: 'SET nickname = :nickname, identityStatus = :status', ExpressionAttributeValues: { ':nickname': newNickname.display, ':status': 'unconfirmed' }, ConditionExpression: 'guestId = :guestId', } }]
+          : [
+              { Delete: { TableName: tableName, Key: oldDirectory } },
+              { Put: { TableName: tableName, Item: newDirectory, ConditionExpression: 'attribute_not_exists(pk)' } },
+            ];
+        await sendWithRetry(ddb, new TransactWriteCommand({ TransactItems: [
+          { Update: { TableName: tableName, Key: { pk: `GUEST#${existingContact.guestId}`, sk: 'PROFILE' }, UpdateExpression: 'SET nickname = :nickname, identityStatus = :status, updatedAt = :now', ExpressionAttributeValues: { ':nickname': newNickname.display, ':status': 'unconfirmed', ':enabled': true, ':now': Math.floor(Date.now() / 1000) }, ConditionExpression: 'enabled = :enabled', } },
+          ...directoryItems,
+        ] }));
+        results.push(`${newNickname.display}: migrated`);
+      } else results.push(`${nickname.display}: skipped (already confirmed)`);
       continue;
     }
     const directory = {
-      ...directoryKey(nickname.lookup), entityType: 'directory', guestId: randomUUID(), nickname: nickname.display,
+      ...directoryKey(normalizeNickname(contact.name).lookup), entityType: 'directory', guestId: randomUUID(), nickname: contact.name, identityStatus: 'unconfirmed',
     };
     const createdAt = Math.floor(Date.now() / 1000);
     const profileItem = {
       pk: `GUEST#${directory.guestId}`, sk: 'PROFILE', entityType: 'guest', guestId: directory.guestId,
-      nickname: nickname.display, contactLookup, enabled: true, sessionVersion: 1, createdAt,
+      nickname: contact.name, contactLookup, identityStatus: 'unconfirmed', enabled: true, sessionVersion: 1, createdAt,
     };
     await sendWithRetry(ddb, new TransactWriteCommand({ TransactItems: [
       { Put: { TableName: tableName, Item: profileItem, ConditionExpression: 'attribute_not_exists(pk)' } },

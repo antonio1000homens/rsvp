@@ -99,13 +99,15 @@ AWS_PROFILE=windsor npm run guest:disable
 
 Disabling removes the nickname from the public directory, revokes existing sessions, and retains passkeys so that the guest can be re-enabled later. Keep any private mapping of nicknames to phone numbers outside this public repository.
 
-Friends who are not yet listed use the **Nao encontro o meu nome** form on the landing page. The user fills in **Nome ou alcunha** and **Número completo do telefone**. The phone field must start with `+`, include a non-zero country code, and contain the complete number, for example `+351 912 345 678`. The browser validates this before submission, and the server validates and normalizes it again. The site then creates a five-minute WhatsApp challenge and a QR/deep link containing:
+Friends who are not yet listed should first join the WhatsApp group. The host can then add them to the phone contacts and run the contact-sync automation. Once the contact is seeded, the name appears in the public list as an unconfirmed contact.
+
+An unconfirmed contact selects their name from the list. The site creates a five-minute WhatsApp challenge and a QR/deep link containing:
 
 ```text
-VALIDATION <base64url(JSON({"name":"...","number":"1234","nonce":"..."}))> <HMAC-SHA-256 signature>
+VALIDATION contact=Ana%20Costa&nonce=<opaque-nonce>&sig=<HMAC-SHA-256-signature>
 ```
 
-The browser never chooses or edits this message. The automation should verify the real sender against your phone's contacts, then forward the exact sender and message to `/api/phone/register`:
+The browser never chooses or edits this message. Tasker should verify that the WhatsApp sender is a contact and forward the contact name plus the exact message to `/api/phone/register`:
 
 ```text
 POST https://calcada2026.pt/api/phone/register
@@ -114,10 +116,10 @@ Content-Type: application/json
 ```
 
 ```json
-{"sender":"+351912345678","message":"VALIDATION <base64url-payload> <signature>"}
+{"sender":"Ana Costa","message":"VALIDATION contact=Ana%20Costa&nonce=<opaque-nonce>&sig=<signature>"}
 ```
 
-The signature is an HMAC-SHA-256 over the exact base64url payload using the private `/rsvp/validation-secret` SecureString. The backend checks the signature before decoding, then checks the nonce, name, last four digits derived from the submitted full number, expiry, and sender format before atomically creating the guest profile and public nickname. Only the contact HMAC is retained; the plaintext number is not stored. Pending registrations are not shown in the public list.
+The contact field is URL-encoded, so Tasker can extract and URL-decode it without Base64 padding or JSON parsing. The nonce and signature are opaque strings and must be forwarded unchanged. The signature is an HMAC-SHA-256 over the exact `contact=...&nonce=...` portion using the private `/rsvp/validation-secret` SecureString. The backend verifies the nonce, stored contact, expiry, and sender name before marking the existing guest `confirmed`. Names are matched case-insensitively with accents and cedillas ignored. The private phone lookup HMAC remains unchanged; plaintext phone numbers are not stored. The contact must then create a passkey. Confirmed contacts use passkey login only.
 
 ## WhatsApp Business app configuration
 
@@ -149,7 +151,7 @@ with this JSON body:
 
 ```json
 {
-  "sender": "+351912345678",
+  "sender": "Ana Costa",
   "message": "LOGIN <contact-HMAC> <one-time-nonce>"
 }
 ```
@@ -157,7 +159,7 @@ with this JSON body:
 Requirements:
 
 - Trigger the request only after explicit manual approval on the phone.
-- Send the exact WhatsApp sender number in E.164 form, not a saved contact name.
+- Send the validated saved contact name, not an unverified name supplied by the guest.
 - Forward the complete received message without rewriting it.
 - Keep the bearer secret in the automation's private configuration.
 

@@ -25,7 +25,6 @@ const elements = {
   sessionStatus: document.querySelector('#session-status'),
   addPasskey: document.querySelector('#add-passkey'),
   logout: document.querySelector('#logout'),
-  registrationForm: document.querySelector('#registration-form'),
   registrationStatus: document.querySelector('#registration-status'),
 };
 
@@ -75,7 +74,7 @@ const showRegistrationWhatsapp = async (result) => {
   const generation = ++pollGeneration;
   elements.guestSection.hidden = true;
   elements.flowSection.hidden = false;
-  elements.selectedName.textContent = 'Novo registo';
+  elements.selectedName.textContent = selectedGuest?.nickname || 'Registo';
   elements.status.textContent = 'A aguardar a verificação pelo WhatsApp…';
   elements.whatsappPanel.hidden = false;
   elements.actions.hidden = true;
@@ -98,17 +97,10 @@ const showRegistrationWhatsapp = async (result) => {
   window.setTimeout(poll, 3000);
 };
 
-const startFriendRegistration = async (event) => {
-  event.preventDefault();
-  const form = new FormData(elements.registrationForm);
-  const phone = String(form.get('phone') || '').trim();
-  if (!/^\+[1-9][0-9 ()-]{7,20}$/.test(phone)) {
-    elements.registrationStatus.textContent = 'Indique o número completo com + e código do país, por exemplo +351 912 345 678.';
-    return;
-  }
+const startGuestRegistration = async () => {
   elements.registrationStatus.textContent = 'A preparar a verificação pelo WhatsApp…';
   try {
-    await showRegistrationWhatsapp(await post('/api/register/start', { name: form.get('name'), phone }));
+    await showRegistrationWhatsapp(await post('/api/register/start', { guestId: selectedGuest.id }));
   } catch (error) { elements.registrationStatus.textContent = readableError(error); }
 };
 
@@ -117,7 +109,9 @@ const readableError = (error) => {
   if (error.code === 'whatsapp_unavailable') return 'O início de sessão pelo WhatsApp ainda não está configurado.';
   if (error.code === 'authentication_challenge_expired') return 'Esta tentativa de início de sessão expirou. Tente novamente.';
   if (error.code === 'passkey_verification_failed') return 'Não foi possível verificar essa chave de acesso.';
-  if (error.code === 'invalid_registration') return 'Indique um nome válido e um número completo com + e código do país.';
+  if (error.code === 'registration_required') return 'Este contacto precisa de concluir o registo.';
+  if (error.code === 'registration_not_required') return 'Este contacto já está registado.';
+  if (error.code === 'passkey_required') return 'Este contacto já está confirmado, mas ainda não tem uma chave de acesso configurada.';
   if (error.code === 'registration_unavailable') return 'Esse nome ou contacto já está registado.';
   return 'Não foi possível concluir a autenticação. Tente novamente.';
 };
@@ -206,6 +200,10 @@ const selectGuest = async (guest) => {
   showFlow();
   elements.status.textContent = 'A verificar o seu convite…';
   try {
+    if (guest.registrationRequired) {
+      await startGuestRegistration();
+      return;
+    }
     const result = await post('/api/auth/start', { guestId: guest.id });
     if (result.mode === 'passkey') await usePasskey(result.options);
     else await showWhatsapp(result);
@@ -316,7 +314,6 @@ elements.logout.addEventListener('click', async () => {
   selectedGuest = null;
   await loadGuests();
 });
-elements.registrationForm.addEventListener('submit', startFriendRegistration);
 elements.triviaForm.addEventListener('submit', answerTrivia);
 
 const initialize = async () => {

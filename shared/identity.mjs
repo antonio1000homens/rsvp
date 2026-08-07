@@ -15,6 +15,11 @@ export const normalizeNickname = (value) => {
   return { display, lookup: display.toLocaleLowerCase('en-US') };
 };
 
+export const normalizeContactName = (value) => {
+  const nickname = normalizeNickname(value);
+  return { ...nickname, lookup: nickname.lookup.normalize('NFKD').replace(/[\u0300-\u036f]/g, '') };
+};
+
 export const normalizePhoneLast4 = (value) => {
   const normalized = String(value ?? '').trim();
   if (!/^\d{4}$/.test(normalized)) throw new Error('Enter the last four phone digits.');

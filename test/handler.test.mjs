@@ -253,7 +253,7 @@ test('public guest directory returns nicknames and IDs but no private profile da
   const response = await handler(request('/api/guests'));
   assert.equal(response.statusCode, 200);
   const serialized = response.body;
-  assert.deepEqual(JSON.parse(serialized), { guests: [{ id: guest().guestId, nickname: 'Toninho' }] });
+  assert.deepEqual(JSON.parse(serialized), { guests: [{ id: guest().guestId, nickname: 'Toninho', registrationRequired: false }] });
   assert.doesNotMatch(serialized, /contactLookup|351911111111|contact-pepper/);
 });
 

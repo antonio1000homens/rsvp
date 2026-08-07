@@ -19,9 +19,9 @@ import {
 import {
   contactLookupFor,
   fromBase64Url,
+  normalizeContactName,
   normalizeE164,
   normalizeNickname,
-  normalizePhoneLast4,
   safeEqual,
   toBase64Url,
   tokenHash,
@@ -57,7 +57,7 @@ const WEBAUTHN_TTL_SECONDS = 5 * 60;
 const SESSION_TTL_SECONDS = 12 * 60 * 60;
 const CAPTCHA_TTL_SECONDS = 15 * 60;
 const LOGIN_MESSAGE = /^LOGIN ([A-Za-z0-9_-]{43}) ([A-Za-z0-9_-]{43})$/;
-const VALIDATION_MESSAGE = /^VALIDATION ([A-Za-z0-9_-]+) ([A-Za-z0-9_-]{43})$/;
+const VALIDATION_MESSAGE = /^VALIDATION contact=([^&\s]+)&nonce=([A-Za-z0-9_-]{43})&sig=([A-Za-z0-9_-]{43})$/;
 const GUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const TRIVIA_QUESTIONS = Object.freeze([
   { id: 'policia', question: 'Quem é o polícia?', answers: ['rui', 'checa'] },
@@ -482,10 +482,14 @@ export const createHandler = ({
       TableName: env.RSVP_TABLE,
       KeyConditionExpression: 'pk = :pk',
       ExpressionAttributeValues: { ':pk': 'DIRECTORY' },
-      ProjectionExpression: 'guestId, nickname',
+      ProjectionExpression: 'guestId, nickname, identityStatus',
     }));
     const guests = (result.Items || [])
-      .map(({ guestId, nickname }) => ({ id: guestId, nickname }))
+      .map(({ guestId, nickname, identityStatus }) => ({
+        id: guestId,
+        nickname: nickname.replace(/ — Por confirmar$/, ''),
+        registrationRequired: identityStatus === 'unconfirmed' || nickname.endsWith(' — Por confirmar'),
+      }))
       .sort((left, right) => left.nickname.localeCompare(right.nickname));
     return jsonResponse(200, { guests });
   };
@@ -494,8 +498,14 @@ export const createHandler = ({
     await requireCaptchaGate(event);
     const { guestId: requestedGuestId } = parseJsonBody(event);
     const guest = await getGuest(validGuestId(requestedGuestId));
+    if (guest.identityStatus === 'unconfirmed' || guest.nickname.endsWith(' — Por confirmar')) {
+      throw new ApiError(409, 'registration_required');
+    }
     const credentials = await getCredentials(guest.guestId);
-    if (credentials.length === 0) return startWhatsapp(guest);
+    if (credentials.length === 0) {
+      if (guest.identityStatus === 'confirmed') throw new ApiError(409, 'passkey_required');
+      return startWhatsapp(guest);
+    }
 
     const options = await webauthn.generateAuthenticationOptions({
       rpID: env.WEBAUTHN_RP_ID,
@@ -539,14 +549,12 @@ export const createHandler = ({
   const startFriendRegistration = async (event) => {
     await requireCaptchaGate(event);
     const body = parseJsonBody(event);
-    let nickname;
-    let phone;
-    try {
-      nickname = normalizeNickname(body.name);
-      phone = normalizeE164(body.phone);
-    } catch (error) {
-      throw new ApiError(400, 'invalid_registration', error.message);
+    const guest = await getGuest(validGuestId(body.guestId));
+    if (guest.identityStatus !== 'unconfirmed' && !guest.nickname.endsWith(' — Por confirmar')) {
+      throw new ApiError(409, 'registration_not_required');
     }
+    const displayName = guest.nickname.replace(/ — Por confirmar$/, '');
+    const contactName = normalizeContactName(displayName);
     const nonce = toBase64Url(randomBytes(32));
     const expiresAt = now() + WHATSAPP_TTL_SECONDS;
     await ddb.send(new PutCommand({
@@ -555,9 +563,9 @@ export const createHandler = ({
         pk: `REGISTRATION#${tokenHash(nonce)}`,
         sk: 'CHALLENGE',
         entityType: 'registrationChallenge',
-        nickname: nickname.display,
-        nicknameLookup: nickname.lookup,
-        last4: phone.slice(-4),
+        guestId: guest.guestId,
+        nickname: contactName.display,
+        nicknameLookup: contactName.lookup,
         status: 'pending',
         expiresAt,
         createdAt: now(),
@@ -570,12 +578,13 @@ export const createHandler = ({
     } catch {
       throw new ApiError(503, 'whatsapp_unavailable');
     }
-    const payload = Buffer.from(JSON.stringify({ name: nickname.display, number: last4, nonce }), 'utf8').toString('base64url');
+    const contact = encodeURIComponent(contactName.display);
+    const signedMessage = `contact=${contact}&nonce=${nonce}`;
     const validationSecret = await getValidationSecret();
     if (!validationSecret) throw new ApiError(503, 'validation_unavailable');
-    const signature = createHmac('sha256', validationSecret).update(payload, 'utf8').digest('base64url');
+    const signature = createHmac('sha256', validationSecret).update(signedMessage, 'utf8').digest('base64url');
     const whatsappUrl = new URL(`https://wa.me/${appNumber.slice(1)}`);
-    whatsappUrl.searchParams.set('text', `VALIDATION ${payload} ${signature}`);
+    whatsappUrl.searchParams.set('text', `VALIDATION ${signedMessage}&sig=${signature}`);
     const cookie = await makeSignedCookie('rsvp_registration', { type: 'registration', nonce }, WHATSAPP_TTL_SECONDS);
     return jsonResponse(200, { mode: 'registration', whatsappUrl: whatsappUrl.toString(), expiresAt }, { cookies: [cookie] });
   };
@@ -644,40 +653,29 @@ export const createHandler = ({
     if (!safeEqual(providedSecret, expectedSecret)) throw new ApiError(401, 'unauthorized');
     const { sender, message } = parseJsonBody(event);
     let normalizedSender;
-    try { normalizedSender = normalizeE164(sender); } catch { throw new ApiError(400, 'invalid_sender'); }
+    try { normalizedSender = normalizeContactName(sender); } catch { throw new ApiError(400, 'invalid_sender'); }
     const match = VALIDATION_MESSAGE.exec(String(message || ''));
     if (!match) throw new ApiError(400, 'invalid_validation_message');
-    const [, payloadEncoded, signature] = match;
+    const [, encodedContact, nonce, signature] = match;
     const validationSecret = await getValidationSecret();
     if (!validationSecret) throw new ApiError(503, 'validation_unavailable');
-    const expectedSignature = createHmac('sha256', validationSecret).update(payloadEncoded, 'utf8').digest('base64url');
+    const signedMessage = `contact=${encodedContact}&nonce=${nonce}`;
+    const expectedSignature = createHmac('sha256', validationSecret).update(signedMessage, 'utf8').digest('base64url');
     if (!safeEqual(signature, expectedSignature)) throw new ApiError(400, 'invalid_validation_signature');
-    let payload;
-    try {
-      payload = JSON.parse(Buffer.from(payloadEncoded, 'base64url').toString('utf8'));
-      if (!payload || typeof payload !== 'object') throw new Error('invalid');
-    } catch { throw new ApiError(400, 'invalid_validation_message'); }
     let nickname;
-    let last4;
-    try { nickname = normalizeNickname(payload.name); last4 = normalizePhoneLast4(payload.number); } catch { throw new ApiError(400, 'invalid_validation_message'); }
-    if (normalizedSender.slice(-4) !== last4 || typeof payload.nonce !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(payload.nonce)) {
-      throw new ApiError(400, 'sender_mismatch');
-    }
-    const key = { pk: `REGISTRATION#${tokenHash(payload.nonce)}`, sk: 'CHALLENGE' };
+    try { nickname = normalizeContactName(decodeURIComponent(encodedContact)); } catch { throw new ApiError(400, 'invalid_validation_message'); }
+    const key = { pk: `REGISTRATION#${tokenHash(nonce)}`, sk: 'CHALLENGE' };
     const existing = await ddb.send(new GetCommand({ TableName: env.RSVP_TABLE, Key: key, ConsistentRead: true }));
     const challenge = existing.Item;
-    if (!challenge || challenge.status !== 'pending' || challenge.expiresAt < now() || challenge.nicknameLookup !== nickname.lookup || challenge.last4 !== last4) {
+    if (!challenge || challenge.status !== 'pending' || challenge.expiresAt < now() || challenge.nicknameLookup !== nickname.lookup || normalizedSender.lookup !== nickname.lookup) {
       throw new ApiError(challenge?.status === 'created' ? 409 : 410, 'registration_challenge_unavailable');
     }
-    const pepper = await getContactPepper();
-    const contactLookup = contactLookupFor(normalizedSender, pepper);
-    const guestId = randomUUID();
+    const selectedGuest = await getGuest(challenge.guestId);
     try {
       await ddb.send(new TransactWriteCommand({ TransactItems: [
-        { Update: { TableName: env.RSVP_TABLE, Key: key, UpdateExpression: 'SET #status = :created, guestId = :guestId, contactLookup = :lookup, approvedAt = :now', ConditionExpression: '#status = :pending AND expiresAt >= :now', ExpressionAttributeNames: { '#status': 'status' }, ExpressionAttributeValues: { ':created': 'created', ':pending': 'pending', ':now': now(), ':guestId': guestId, ':lookup': contactLookup } } },
-        { Put: { TableName: env.RSVP_TABLE, Item: { pk: `GUEST#${guestId}`, sk: 'PROFILE', entityType: 'guest', guestId, nickname: nickname.display, contactLookup, enabled: true, sessionVersion: 1, createdAt: now() }, ConditionExpression: 'attribute_not_exists(pk)' } },
-        { Put: { TableName: env.RSVP_TABLE, Item: { pk: 'DIRECTORY', sk: `NICKNAME#${nickname.lookup}`, entityType: 'directory', guestId, nickname: nickname.display }, ConditionExpression: 'attribute_not_exists(pk)' } },
-        { Put: { TableName: env.RSVP_TABLE, Item: { pk: `CONTACT#${contactLookup}`, sk: 'LOOKUP', entityType: 'contactLock', guestId }, ConditionExpression: 'attribute_not_exists(pk)' } },
+        { Update: { TableName: env.RSVP_TABLE, Key: key, UpdateExpression: 'SET #status = :created, approvedAt = :now', ConditionExpression: '#status = :pending AND expiresAt >= :now', ExpressionAttributeNames: { '#status': 'status' }, ExpressionAttributeValues: { ':created': 'created', ':pending': 'pending', ':now': now() } } },
+        { Update: { TableName: env.RSVP_TABLE, Key: { pk: `GUEST#${selectedGuest.guestId}`, sk: 'PROFILE' }, UpdateExpression: 'SET identityStatus = :confirmed, nickname = :nickname, updatedAt = :now', ConditionExpression: 'enabled = :enabled AND (identityStatus = :unconfirmed OR begins_with(nickname, :pendingPrefix))', ExpressionAttributeValues: { ':confirmed': 'confirmed', ':unconfirmed': 'unconfirmed', ':enabled': true, ':nickname': nickname.display, ':pendingPrefix': nickname.display, ':now': now() } } },
+        { Update: { TableName: env.RSVP_TABLE, Key: { pk: 'DIRECTORY', sk: `NICKNAME#${nickname.lookup}` }, UpdateExpression: 'SET nickname = :nickname, identityStatus = :confirmed', ConditionExpression: 'guestId = :guestId', ExpressionAttributeValues: { ':nickname': nickname.display, ':confirmed': 'confirmed', ':guestId': selectedGuest.guestId } } },
       ] }));
     } catch (error) {
       if (conditionalFailure(error)) throw new ApiError(409, 'registration_unavailable');
