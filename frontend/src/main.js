@@ -59,7 +59,7 @@ const showFlow = () => {
   elements.guestSection.hidden = true;
   elements.sessionSection.hidden = true;
   elements.flowSection.hidden = false;
-  elements.selectedName.textContent = selectedGuest?.nickname || 'Friend registration';
+  elements.selectedName.textContent = selectedGuest?.nickname || 'Novo Calceteiro';
   elements.whatsappPanel.hidden = true;
   elements.actions.hidden = false;
   elements.createPasskey.hidden = true;
@@ -70,7 +70,7 @@ const showRegistrationWhatsapp = async (result) => {
   const generation = ++pollGeneration;
   elements.guestSection.hidden = true;
   elements.flowSection.hidden = false;
-  elements.selectedName.textContent = 'Friend registration';
+  elements.selectedName.textContent = 'Novo Calceteiro:';
   elements.status.textContent = 'Waiting for WhatsApp verification…';
   elements.whatsappPanel.hidden = false;
   elements.actions.hidden = true;
