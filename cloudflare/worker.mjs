@@ -38,6 +38,10 @@ export const proxyRequest = async (request, env, fetchImpl = fetch) => {
     incomingUrl.protocol = 'https:';
     return Response.redirect(incomingUrl, 308);
   }
+  if (incomingUrl.hostname === 'www.calcada2026.pt') {
+    incomingUrl.hostname = 'calcada2026.pt';
+    return Response.redirect(incomingUrl, 308);
+  }
 
   const origin = validatedOrigin(env.ORIGIN_URL);
   if (!origin || !env.ORIGIN_SECRET) return errorResponse();
@@ -77,4 +81,3 @@ export default {
     return proxyRequest(request, env);
   },
 };
-

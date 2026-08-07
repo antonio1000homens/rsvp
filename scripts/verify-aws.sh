@@ -53,6 +53,9 @@ case "${ttl_status}" in ENABLED|ENABLING) ;; *) echo "Unexpected TTL status: ${t
 function_config="$(aws_cli lambda get-function-configuration --function-name "${function_name}" --query '[Runtime,MemorySize,Timeout]' --output text)"
 [ "${function_config}" = $'nodejs24.x\t256\t15' ]
 
+auth_config="$(aws_cli lambda get-function-configuration --function-name "${function_name}" --query 'Environment.Variables.[WHATSAPP_NUMBER_PARAMETER,PHONE_WEBHOOK_SECRET_PARAMETER,TURNSTILE_SITE_KEY_PARAMETER,TURNSTILE_SECRET_PARAMETER,WEBAUTHN_RP_ID,WEBAUTHN_EXPECTED_ORIGIN]' --output text)"
+[ "${auth_config}" = $'/rsvp/whatsapp-number\t/rsvp/phone-webhook-secret\t/rsvp/turnstile-site-key\t/rsvp/turnstile-secret\tcalcada2026.pt\thttps://calcada2026.pt' ]
+
 concurrency="$(aws_cli lambda get-function-concurrency --function-name "${function_name}" --query 'ReservedConcurrentExecutions' --output text)"
 [ "${concurrency}" = '5' ]
 

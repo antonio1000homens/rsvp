@@ -36,7 +36,13 @@ grep -Eiq '^cf-ray:' "${https_headers}"
 health_status="$(curl --silent --show-error --tlsv1.2 --output /dev/null --write-out '%{http_code}' "https://${DOMAIN}/health")"
 [ "${health_status}" = '200' ] || { echo "Expected protected origin health response 200, got ${health_status}." >&2; exit 1; }
 
+www_headers="$(mktemp)"
+trap 'rm -f -- "${http_headers}" "${https_headers}" "${www_headers}"' EXIT
+www_status="$(curl --silent --show-error --tlsv1.2 --output /dev/null --dump-header "${www_headers}" --write-out '%{http_code}' "https://www.${DOMAIN}/")"
+[ "${www_status}" = '308' ] || { echo "Expected canonical www redirect 308, got ${www_status}." >&2; exit 1; }
+grep -Eiq "^location: https://${DOMAIN}/" "${www_headers}"
+
 printf '' | openssl s_client -connect "${DOMAIN}:443" -servername "${DOMAIN}" -verify_return_error 2>&1 \
   | grep -q 'Verify return code: 0 (ok)'
 
-echo "Verified ${DOMAIN}: Cloudflare DNS, HTTP-to-HTTPS redirect, valid TLS, HSTS, edge proxy, and protected Lambda origin."
+echo "Verified ${DOMAIN}: Cloudflare DNS, canonical HTTPS redirects, valid TLS, HSTS, edge proxy, and protected Lambda origin."

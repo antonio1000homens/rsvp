@@ -27,6 +27,18 @@ test('redirects plain HTTP to HTTPS without contacting the origin', async () => 
   assert.equal(called, false);
 });
 
+test('redirects www to the canonical passkey origin', async () => {
+  let called = false;
+  const response = await proxyRequest(
+    new Request('https://www.calcada2026.pt/login?guest=1'),
+    env,
+    async () => { called = true; },
+  );
+  assert.equal(response.status, 308);
+  assert.equal(response.headers.get('location'), 'https://calcada2026.pt/login?guest=1');
+  assert.equal(called, false);
+});
+
 test('replaces a client-supplied origin secret and preserves path and query', async () => {
   let observed;
   const response = await proxyRequest(
@@ -75,4 +87,3 @@ test('fails closed for missing configuration or origin failures', async () => {
   assert.equal(failed.status, 502);
   assert.deepEqual(await failed.json(), { error: 'origin_unavailable' });
 });
-

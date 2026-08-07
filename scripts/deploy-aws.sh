@@ -57,7 +57,11 @@ cp "${ROOT_DIR}/dist/lambda/index.mjs" "${TEMP_DIR}/index.mjs"
 if [ -n "${GITHUB_SHA:-}" ]; then
   deploy_id="${GITHUB_SHA}"
 elif git rev-parse HEAD >/dev/null 2>&1; then
-  deploy_id="$(git rev-parse HEAD)"
+  if [ -n "$(git status --porcelain)" ]; then
+    deploy_id="$(git rev-parse --short=12 HEAD)-$(date -u +%Y%m%d%H%M%S)"
+  else
+    deploy_id="$(git rev-parse HEAD)"
+  fi
 else
   deploy_id="$(date -u +%Y%m%d%H%M%S)"
 fi

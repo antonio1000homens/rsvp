@@ -75,6 +75,8 @@ with open(sys.argv[1], "w", encoding="utf-8") as output:
 create_secure_parameter_if_missing /rsvp/origin-secret
 create_secure_parameter_if_missing /rsvp/session-secret
 create_secure_parameter_if_missing /rsvp/contact-pepper
+create_secure_parameter_if_missing /rsvp/phone-webhook-secret
+create_secure_parameter_if_missing /rsvp/validation-secret
 
 aws_cli cloudformation deploy \
   --stack-name "${STACK_NAME}" \

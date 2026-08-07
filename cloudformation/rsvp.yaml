@@ -30,6 +30,27 @@ Parameters:
   ContactPepperParameter:
     Type: String
     Default: /rsvp/contact-pepper
+  WhatsappNumberParameter:
+    Type: String
+    Default: /rsvp/whatsapp-number
+  PhoneWebhookSecretParameter:
+    Type: String
+    Default: /rsvp/phone-webhook-secret
+  ValidationSecretParameter:
+    Type: String
+    Default: /rsvp/validation-secret
+  TurnstileSiteKeyParameter:
+    Type: String
+    Default: /rsvp/turnstile-site-key
+  TurnstileSecretParameter:
+    Type: String
+    Default: /rsvp/turnstile-secret
+  WebauthnRpId:
+    Type: String
+    Default: calcada2026.pt
+  WebauthnExpectedOrigin:
+    Type: String
+    Default: https://calcada2026.pt
 
 Resources:
   SiteBucket:
@@ -150,6 +171,7 @@ Resources:
                   - dynamodb:PutItem
                   - dynamodb:Query
                   - dynamodb:Scan
+                  - dynamodb:TransactWriteItems
                   - dynamodb:UpdateItem
                 Resource:
                   - !GetAtt RsvpTable.Arn
@@ -162,6 +184,11 @@ Resources:
                   - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${OriginSecretParameter}
                   - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${SessionSecretParameter}
                   - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${ContactPepperParameter}
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${WhatsappNumberParameter}
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${PhoneWebhookSecretParameter}
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${ValidationSecretParameter}
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${TurnstileSiteKeyParameter}
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${TurnstileSecretParameter}
               - Sid: WriteFunctionLogs
                 Effect: Allow
                 Action:
@@ -193,6 +220,14 @@ Resources:
           ORIGIN_SECRET_PARAMETER: !Ref OriginSecretParameter
           SESSION_SECRET_PARAMETER: !Ref SessionSecretParameter
           CONTACT_PEPPER_PARAMETER: !Ref ContactPepperParameter
+          WHATSAPP_NUMBER_PARAMETER: !Ref WhatsappNumberParameter
+          PHONE_WEBHOOK_SECRET_PARAMETER: !Ref PhoneWebhookSecretParameter
+          VALIDATION_SECRET_PARAMETER: !Ref ValidationSecretParameter
+          TURNSTILE_SITE_KEY_PARAMETER: !Ref TurnstileSiteKeyParameter
+          TURNSTILE_SECRET_PARAMETER: !Ref TurnstileSecretParameter
+          WEBAUTHN_RP_ID: !Ref WebauthnRpId
+          WEBAUTHN_EXPECTED_ORIGIN: !Ref WebauthnExpectedOrigin
+          WEBAUTHN_RP_NAME: Calçada 2026 RSVP
       Tags:
         - Key: Application
           Value: rsvp
@@ -242,4 +277,3 @@ Outputs:
     Value: !GetAtt RsvpFunctionUrl.FunctionUrl
   FunctionRoleArn:
     Value: !GetAtt RsvpFunctionRole.Arn
-

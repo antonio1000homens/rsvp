@@ -6,6 +6,7 @@
 }
 
 * { box-sizing: border-box; }
+[hidden] { display: none !important; }
 
 body {
   min-height: 100vh;
@@ -17,11 +18,11 @@ body {
 }
 
 .card {
-  width: min(100%, 31rem);
+  width: min(100%, 34rem);
   padding: clamp(2rem, 7vw, 4rem);
   border: 1px solid rgba(83, 60, 38, 0.16);
   border-radius: 1.5rem;
-  background: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.92);
   box-shadow: 0 1.5rem 4rem rgba(62, 42, 25, 0.12);
 }
 
@@ -34,27 +35,26 @@ body {
   text-transform: uppercase;
 }
 
-h1 { margin: 0; font-family: Georgia, serif; font-size: clamp(2.4rem, 9vw, 4rem); }
+h1, h2 { font-family: Georgia, serif; }
+h1 { margin: 0; font-size: clamp(2.4rem, 9vw, 4rem); }
+h2 { margin: 1rem 0 0; font-size: 1.8rem; }
 .intro { margin: 1rem 0 2rem; color: #695b50; line-height: 1.6; }
-form { display: grid; gap: 0.75rem; }
-label { margin-top: 0.5rem; font-size: 0.9rem; font-weight: 650; }
+.captcha { min-height: 65px; margin: 1rem 0 0.25rem; }
+.captcha + .status { margin-top: 0.25rem; }
 
-input {
-  width: 100%;
-  min-height: 3rem;
-  padding: 0.75rem 0.9rem;
-  border: 1px solid #b9aa9c;
-  border-radius: 0.65rem;
-  background: #fff;
-  color: inherit;
-  font: inherit;
+.guest-list, .actions {
+  display: grid;
+  gap: 0.75rem;
 }
 
-input:focus { outline: 3px solid rgba(138, 88, 56, 0.24); border-color: #8a5838; }
+hr { margin: 2rem 0; border: 0; border-top: 1px solid rgba(83, 60, 38, 0.16); }
+.registration-form { display: grid; gap: 0.55rem; }
+.registration-form label { color: #695b50; font-size: 0.9rem; font-weight: 650; }
+.registration-form input { width: 100%; min-height: 2.8rem; padding: 0.6rem 0.75rem; border: 1px solid #cdbcae; border-radius: 0.55rem; background: #fffdf9; color: #2d261f; font: inherit; }
+.registration-form button { margin-top: 0.5rem; }
 
-button {
+button, .primary-link {
   min-height: 3rem;
-  margin-top: 1rem;
   border: 0;
   border-radius: 0.65rem;
   background: #513521;
@@ -64,6 +64,29 @@ button {
   cursor: pointer;
 }
 
-button:hover { background: #352216; }
-.status { min-height: 1.5rem; margin: 0.5rem 0 0; color: #76513a; line-height: 1.4; }
+button:hover, .primary-link:hover { background: #352216; }
+.guest-button { width: 100%; padding: 0.75rem 1rem; text-align: left; }
+.actions { margin-top: 1rem; }
+.secondary { border: 1px solid #8a5838; background: #fff; color: #513521; }
+.secondary:hover { background: #f4ece4; }
 
+.text-button {
+  min-height: auto;
+  padding: 0;
+  background: transparent;
+  color: #76513a;
+  font-weight: 650;
+}
+.text-button:hover { background: transparent; color: #352216; }
+
+.status { min-height: 1.5rem; margin: 1rem 0; color: #76513a; line-height: 1.4; }
+.whatsapp-panel { display: grid; justify-items: center; gap: 1rem; text-align: center; }
+.whatsapp-panel p { margin: 0; line-height: 1.5; }
+#qr-code { width: 228px; height: 228px; max-width: 100%; border-radius: 0.5rem; }
+.primary-link { display: grid; place-items: center; width: 100%; padding: 0.65rem 1rem; text-decoration: none; }
+.fine-print { color: #695b50; font-size: 0.85rem; }
+
+button:focus-visible, .primary-link:focus-visible {
+  outline: 3px solid rgba(138, 88, 56, 0.35);
+  outline-offset: 2px;
+}

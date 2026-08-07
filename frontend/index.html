@@ -5,27 +5,61 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="referrer" content="no-referrer">
     <meta name="robots" content="noindex, nofollow">
-    <title>Dinner RSVP</title>
+    <title>Calçada 2026 RSVP</title>
     <link rel="stylesheet" href="/__APP_CSS__">
   </head>
   <body>
     <main class="card">
       <p class="eyebrow">You’re invited</p>
-      <h1>Dinner RSVP</h1>
-      <p class="intro">Use the contact detail and private passphrase from your invitation.</p>
+      <h1>Calçada 2026</h1>
 
-      <form id="login-form" novalidate>
-        <label for="contact">Email or phone number</label>
-        <input id="contact" name="contact" autocomplete="username" required>
+      <section id="guest-section">
+        <h2>Already registered</h2>
+        <p class="intro">Complete the security check, then choose your name.</p>
+        <div id="captcha" class="captcha" aria-label="Security check"></div>
+        <p id="captcha-status" class="status" role="status" aria-live="polite">Loading security check…</p>
+        <div id="guest-list" class="guest-list" aria-live="polite"></div>
+        <hr>
+        <h2>Register as a friend</h2>
+        <p class="intro">Not listed yet? Enter your name and the last four digits of your phone number.</p>
+        <form id="registration-form" class="registration-form">
+          <label for="registration-name">Name or nickname</label>
+          <input id="registration-name" name="name" maxlength="60" required autocomplete="name">
+          <label for="registration-last4">Last 4 phone digits</label>
+          <input id="registration-last4" name="last4" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" required>
+          <button type="submit">Verify with WhatsApp</button>
+        </form>
+        <p id="registration-status" class="status" role="status" aria-live="polite"></p>
+      </section>
 
-        <label for="passphrase">Passphrase</label>
-        <input id="passphrase" name="passphrase" type="password" autocomplete="current-password" required>
-
-        <button type="submit">View my RSVP</button>
+      <section id="flow-section" hidden>
+        <button id="back-button" class="text-button" type="button">← Choose another name</button>
+        <h2 id="selected-name"></h2>
         <p id="status" class="status" role="status" aria-live="polite"></p>
-      </form>
+
+        <div id="whatsapp-panel" class="whatsapp-panel" hidden>
+          <p>Scan this QR code with the phone using your whitelisted WhatsApp number.</p>
+          <canvas id="qr-code" role="img" aria-label="WhatsApp login QR code"></canvas>
+          <a id="whatsapp-link" class="primary-link" rel="noreferrer">Open WhatsApp on this device</a>
+          <p class="fine-print">Send the pre-filled message unchanged, then wait for the host to approve it.</p>
+        </div>
+
+        <div id="actions" class="actions" hidden>
+          <button id="create-passkey" type="button" hidden>Create passkey</button>
+          <button id="whatsapp-recovery" class="secondary" type="button" hidden>Verify with WhatsApp</button>
+        </div>
+      </section>
+
+      <section id="session-section" hidden>
+        <p class="intro">Signed in as <strong id="session-name"></strong>.</p>
+        <p>Your identity is verified. RSVP questions will be added in the next phase.</p>
+        <div class="actions">
+          <button id="add-passkey" type="button">Add another passkey</button>
+          <button id="logout" class="secondary" type="button">Sign out</button>
+        </div>
+        <p id="session-status" class="status" role="status" aria-live="polite"></p>
+      </section>
     </main>
     <script type="module" src="/__APP_JS__"></script>
   </body>
 </html>
-

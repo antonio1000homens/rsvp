@@ -5,12 +5,21 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 
-test('deployment script uses the scoped artifact prefix and protects the stack', async () => {
+test('deployment script uses the scoped artifact prefix and protects the stack', async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'rsvp-deploy-test-'));
   const log = join(directory, 'commands.log');
   const lambdaOutput = new URL('../dist/lambda/', import.meta.url);
   await mkdir(lambdaOutput, { recursive: true });
+  let previousLambda;
+  try {
+    previousLambda = await readFile(new URL('index.mjs', lambdaOutput));
+  } catch {
+    previousLambda = null;
+  }
   await writeFile(new URL('index.mjs', lambdaOutput), 'export const handler = async () => ({ statusCode: 200 });\n');
+  t.after(async () => {
+    if (previousLambda) await writeFile(new URL('index.mjs', lambdaOutput), previousLambda);
+  });
 
   const commands = {
     npm: '#!/usr/bin/env bash\necho "npm $*" >>"$MOCK_LOG"\nexit 0\n',
