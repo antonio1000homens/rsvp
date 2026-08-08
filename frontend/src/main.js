@@ -6,6 +6,7 @@ const elements = {
   guestList: document.querySelector('#guest-list'),
   groupPicker: document.querySelector('#group-picker'),
   groupSelect: document.querySelector('#group-select'),
+  validatedContent: document.querySelector('#validated-content'),
   rsvpSummary: document.querySelector('#rsvp-summary'),
   rsvpSummaryTotal: document.querySelector('#rsvp-summary-total'),
   availabilityChart: document.querySelector('#availability-chart'),
@@ -327,6 +328,7 @@ const answerTrivia = async (event) => {
     await post('/api/trivia/answer', { challenge: triviaChallenge, answer: elements.triviaAnswer.value });
     elements.triviaForm.hidden = true;
     elements.triviaStatus.textContent = 'Resposta correta.';
+    elements.validatedContent.hidden = false;
     elements.newContactForm.hidden = false;
     await Promise.all([loadGroups(), loadRsvpSummary()]);
   } catch (error) {
@@ -369,6 +371,8 @@ const loadTurnstile = async () => {
       'expired-callback': () => {
         elements.captchaStatus.textContent = 'A verificação de segurança expirou. Conclua-a novamente.';
         elements.guestList.replaceChildren();
+        elements.validatedContent.hidden = true;
+        elements.rsvpSummary.hidden = true;
       },
       'error-callback': () => {
         elements.captchaStatus.textContent = 'Não foi possível carregar a verificação de segurança. Tente novamente mais tarde.';
