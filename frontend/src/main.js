@@ -135,7 +135,7 @@ const usePasskey = async (options) => {
     const result = await post('/api/auth/passkeys/login/verify', { credential });
     showAuthenticated(result.nickname);
   } catch (error) {
-    elements.status.textContent = `${readableError(error)} Pode recuperar o acesso através do WhatsApp.`;
+    elements.status.textContent = readableError(error);
   }
 };
 

@@ -76,6 +76,15 @@ class FakeDdb {
         Items: [...this.items.values()].filter((item) => item.pk === pk && (!prefix || item.sk.startsWith(prefix))),
       };
     }
+    if (name === 'ScanCommand') {
+      const values = input.ExpressionAttributeValues || {};
+      return {
+        Items: [...this.items.values()].filter((item) =>
+          (!values[':profile'] || item.sk === values[':profile']) &&
+          (!values[':guest'] || item.entityType === values[':guest']) &&
+          (!values[':enabled'] || item.enabled === values[':enabled'])),
+      };
+    }
     if (name === 'PutCommand') {
       if (input.ConditionExpression && this.get(input.Item)) throw conditionalError();
       this.items.set(keyOf(input.Item), structuredClone(input.Item));
@@ -243,10 +252,7 @@ test('health endpoint is protected', async () => {
 });
 
 test('public guest directory returns nicknames and IDs but no private profile data', async () => {
-  const directory = {
-    pk: 'DIRECTORY', sk: 'NICKNAME#toninho', guestId: guest().guestId, nickname: 'Toninho',
-  };
-  const { handler } = makeHandler({ items: [directory, guest()] });
+  const { handler } = makeHandler({ items: [guest()] });
   const response = await handler(request('/api/guests'));
   assert.equal(response.statusCode, 200);
   const serialized = response.body;

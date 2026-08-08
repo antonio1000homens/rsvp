@@ -79,7 +79,7 @@ The site key is stored as `/rsvp/turnstile-site-key` (String); the server secret
 
 ## Guest whitelist
 
-Guest identity uses a public contact name.
+Each guest has two names: `nickname` is the public name shown on the site; `sender` is the private WhatsApp sender name used by Tasker to validate the registration. They may be the same, but they are stored separately.
 
 Add a guest:
 
@@ -88,7 +88,7 @@ aws sso login --profile windsor
 AWS_PROFILE=windsor npm run guest:add
 ```
 
-The command prompts for the contact name and stores no phone number. Duplicate enabled contact names are rejected.
+The command prompts for the public nickname and WhatsApp sender name and stores no phone number. Duplicate enabled nicknames are rejected.
 
 List or disable enabled guests:
 
@@ -99,7 +99,7 @@ AWS_PROFILE=windsor npm run guest:disable
 
 Disabling removes the nickname from the public directory, revokes existing sessions, and retains passkeys so that the guest can be re-enabled later. Keep any private mapping of nicknames to phone numbers outside this public repository.
 
-Friends who are not yet listed should first join the WhatsApp group. The host can then add them to the phone contacts and run the contact-sync automation. Once the contact is seeded, the name appears in the public list as an unconfirmed contact.
+Friends who are not yet listed should first join the WhatsApp group. The host can then add them to the phone contacts and seed a record with both names. Once seeded, the nickname appears in the public list as an unconfirmed guest.
 
 An unconfirmed contact selects their name from the list. The site creates a five-minute WhatsApp challenge and a QR/deep link containing:
 
@@ -119,7 +119,7 @@ Content-Type: application/json
 {"sender":"Ana Costa","message":"VALIDATION contact=Ana%20Costa&nonce=<opaque-nonce>&sig=<signature>"}
 ```
 
-The contact field is URL-encoded, so Tasker can extract and URL-decode it without Base64 padding or JSON parsing. The nonce and signature are opaque strings and must be forwarded unchanged. The signature is an HMAC-SHA-256 over the exact `contact=...&nonce=...` portion using the private `/rsvp/validation-secret` SecureString. The backend verifies the nonce, stored contact, expiry, and sender name before marking the existing guest `confirmed`. Names are matched case-insensitively with accents and cedillas ignored. The private phone lookup HMAC remains unchanged; plaintext phone numbers are not stored. The contact must then create a passkey. Confirmed contacts use passkey login only.
+The `contact` field in the validation message is URL-encoded for compatibility with the existing Tasker flow. The nonce and signature are opaque strings and must be forwarded unchanged. The signature is an HMAC-SHA-256 over the exact `contact=...&nonce=...` portion using the private `/rsvp/validation-secret` SecureString. The backend verifies the nonce, stored `sender`, expiry, and WhatsApp sender name before marking the existing guest `confirmed`. Names are matched case-insensitively with accents and cedillas ignored. The guest must then create a passkey. Confirmed guests use passkey login only.
 
 ## WhatsApp Business app configuration
 

@@ -16,7 +16,7 @@ test('guest add writes a name-based unconfirmed guest without phone data', async
       return {};
     },
   };
-  await addGuest({ ddb, prompt: promptFor('Dinner Fox') });
+  await addGuest({ ddb, prompt: promptFor('Dinner Fox', 'dinner-fox') });
   const transaction = calls.find((command) => command.constructor.name === 'TransactWriteCommand');
   assert.ok(transaction);
   const serialized = JSON.stringify(transaction.input);
@@ -28,15 +28,15 @@ test('guest add rejects an already enabled contact', async () => {
   let transactionSent = false;
   const ddb = {
     async send(command) {
-      if (command.constructor.name === 'GetCommand') {
-        return { Item: { guestId: 'existing', enabled: true } };
+      if (command.constructor.name === 'ScanCommand') {
+        return { Items: [{ pk: 'GUEST#existing', sk: 'PROFILE', guestId: 'existing', nickname: 'Duplicate', enabled: true }] };
       }
       transactionSent = true;
       return {};
     },
   };
   await assert.rejects(
-    addGuest({ ddb, prompt: promptFor('Duplicate') }),
+    addGuest({ ddb, prompt: promptFor('Duplicate', 'duplicate') }),
     /already enabled/,
   );
   assert.equal(transactionSent, false);

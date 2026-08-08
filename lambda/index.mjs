@@ -5,6 +5,7 @@ import {
   GetCommand,
   PutCommand,
   QueryCommand,
+  ScanCommand,
   TransactWriteCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
@@ -418,10 +419,10 @@ export const createHandler = ({
   };
 
   const listGuests = async () => {
-    const result = await ddb.send(new QueryCommand({
+    const result = await ddb.send(new ScanCommand({
       TableName: env.RSVP_TABLE,
-      KeyConditionExpression: 'pk = :pk',
-      ExpressionAttributeValues: { ':pk': 'DIRECTORY' },
+      FilterExpression: 'sk = :profile AND entityType = :guest AND enabled = :enabled',
+      ExpressionAttributeValues: { ':profile': 'PROFILE', ':guest': 'guest', ':enabled': true },
       ProjectionExpression: 'guestId, nickname, identityStatus',
     }));
     const guests = (result.Items || [])
@@ -473,7 +474,7 @@ export const createHandler = ({
       throw new ApiError(409, 'registration_not_required');
     }
     const displayName = guest.nickname.replace(/ — Por confirmar$/, '');
-    const contactName = normalizeContactName(displayName);
+    const senderName = normalizeContactName(guest.sender || displayName);
     const nonce = toBase64Url(randomBytes(32));
     const expiresAt = now() + WHATSAPP_TTL_SECONDS;
     await ddb.send(new PutCommand({
@@ -483,8 +484,8 @@ export const createHandler = ({
         sk: 'CHALLENGE',
         entityType: 'registrationChallenge',
         guestId: guest.guestId,
-        nickname: contactName.display,
-        nicknameLookup: contactName.lookup,
+        sender: senderName.display,
+        senderLookup: senderName.lookup,
         status: 'pending',
         expiresAt,
         createdAt: now(),
@@ -497,7 +498,7 @@ export const createHandler = ({
     } catch {
       throw new ApiError(503, 'whatsapp_unavailable');
     }
-    const contact = encodeURIComponent(contactName.display);
+    const contact = encodeURIComponent(senderName.display);
     const signedMessage = `contact=${contact}&nonce=${nonce}`;
     const validationSecret = await getValidationSecret();
     if (!validationSecret) throw new ApiError(503, 'validation_unavailable');
@@ -532,20 +533,19 @@ export const createHandler = ({
     const signedMessage = `contact=${encodedContact}&nonce=${nonce}`;
     const expectedSignature = createHmac('sha256', validationSecret).update(signedMessage, 'utf8').digest('base64url');
     if (!safeEqual(signature, expectedSignature)) throw new ApiError(400, 'invalid_validation_signature');
-    let nickname;
-    try { nickname = normalizeContactName(decodeURIComponent(encodedContact)); } catch { throw new ApiError(400, 'invalid_validation_message'); }
+    let decodedSender;
+    try { decodedSender = normalizeContactName(decodeURIComponent(encodedContact)); } catch { throw new ApiError(400, 'invalid_validation_message'); }
     const key = { pk: `REGISTRATION#${tokenHash(nonce)}`, sk: 'CHALLENGE' };
     const existing = await ddb.send(new GetCommand({ TableName: env.RSVP_TABLE, Key: key, ConsistentRead: true }));
     const challenge = existing.Item;
-    if (!challenge || challenge.status !== 'pending' || challenge.expiresAt < now() || challenge.nicknameLookup !== nickname.lookup || normalizedSender.lookup !== nickname.lookup) {
+    if (!challenge || challenge.status !== 'pending' || challenge.expiresAt < now() || challenge.senderLookup !== decodedSender.lookup || normalizedSender.lookup !== challenge.senderLookup) {
       throw new ApiError(challenge?.status === 'created' ? 409 : 410, 'registration_challenge_unavailable');
     }
     const selectedGuest = await getGuest(challenge.guestId);
     try {
       await ddb.send(new TransactWriteCommand({ TransactItems: [
         { Update: { TableName: env.RSVP_TABLE, Key: key, UpdateExpression: 'SET #status = :created, approvedAt = :now', ConditionExpression: '#status = :pending AND expiresAt >= :now', ExpressionAttributeNames: { '#status': 'status' }, ExpressionAttributeValues: { ':created': 'created', ':pending': 'pending', ':now': now() } } },
-        { Update: { TableName: env.RSVP_TABLE, Key: { pk: `GUEST#${selectedGuest.guestId}`, sk: 'PROFILE' }, UpdateExpression: 'SET identityStatus = :confirmed, nickname = :nickname, updatedAt = :now', ConditionExpression: 'enabled = :enabled AND (identityStatus = :unconfirmed OR begins_with(nickname, :pendingPrefix))', ExpressionAttributeValues: { ':confirmed': 'confirmed', ':unconfirmed': 'unconfirmed', ':enabled': true, ':nickname': nickname.display, ':pendingPrefix': nickname.display, ':now': now() } } },
-        { Update: { TableName: env.RSVP_TABLE, Key: { pk: 'DIRECTORY', sk: `NICKNAME#${nickname.lookup}` }, UpdateExpression: 'SET nickname = :nickname, identityStatus = :confirmed', ConditionExpression: 'guestId = :guestId', ExpressionAttributeValues: { ':nickname': nickname.display, ':confirmed': 'confirmed', ':guestId': selectedGuest.guestId } } },
+        { Update: { TableName: env.RSVP_TABLE, Key: { pk: `GUEST#${selectedGuest.guestId}`, sk: 'PROFILE' }, UpdateExpression: 'SET identityStatus = :confirmed, sender = :sender, updatedAt = :now', ConditionExpression: 'enabled = :enabled AND (identityStatus = :unconfirmed OR begins_with(nickname, :pendingPrefix))', ExpressionAttributeValues: { ':confirmed': 'confirmed', ':unconfirmed': 'unconfirmed', ':enabled': true, ':sender': decodedSender.display, ':pendingPrefix': selectedGuest.nickname.replace(/ — Por confirmar$/i, ''), ':now': now() } } },
       ] }));
     } catch (error) {
       if (conditionalFailure(error)) throw new ApiError(409, 'registration_unavailable');
