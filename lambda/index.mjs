@@ -390,8 +390,13 @@ export const createHandler = ({
     const secret = await getTurnstileSecret();
     if (!secret) throw new ApiError(503, 'captcha_unavailable');
     const result = await turnstileValidate(token, secret, headerValue(event.headers, 'cf-connecting-ip'));
+    const allowedTurnstileHosts = new Set([env.TURNSTILE_HOSTNAME || 'calcada2026.pt', 'calcada2026.pt', 'www.calcada2026.pt']);
     if (!result?.success || (result.action && result.action !== 'guest-directory') ||
-        (result.hostname && result.hostname !== (env.TURNSTILE_HOSTNAME || 'calcada2026.pt'))) {
+        (result.hostname && !allowedTurnstileHosts.has(result.hostname))) {
+      console.warn('Turnstile validation rejected', {
+        success: Boolean(result?.success), action: result?.action || '', hostname: result?.hostname || '',
+        errorCodes: Array.isArray(result?.['error-codes']) ? result['error-codes'] : [],
+      });
       throw new ApiError(403, 'captcha_failed');
     }
     return [await makeSignedCookie('rsvp_captcha', { type: 'captcha' }, CAPTCHA_TTL_SECONDS)];
