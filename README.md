@@ -98,6 +98,19 @@ AWS_PROFILE=windsor npm run guest:disable
 AWS_PROFILE=windsor npm run guest:mark-added
 ```
 
+## Groups and memberships
+
+Groups are host-managed and a guest can be assigned to any number of them. A group has a stable slug derived from its name; memberships are separate DynamoDB records, so assigning a guest to a second group never replaces the first assignment or their passkeys.
+
+Create each group, then add the relevant guests. The public directory asks guests to choose a group and only shows that group's members.
+
+```bash
+AWS_PROFILE=windsor npm run group:add
+AWS_PROFILE=windsor npm run group:add-member
+```
+
+Existing installations remain compatible while no groups exist: the directory continues to show all enabled guests. Once groups are created, assign every guest who should be visible in a group; unassigned guests remain enabled but are not shown through a group selection.
+
 Disabling removes the nickname from the public directory, revokes existing sessions, and retains passkeys so that the guest can be re-enabled later. Keep any private mapping of nicknames to phone numbers outside this public repository.
 
 Friends who are not yet listed should first join the WhatsApp group. The host can then add them to the phone contacts and seed a record with both names. Once seeded, the nickname appears in the public list as an unconfirmed guest.

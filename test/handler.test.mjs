@@ -82,6 +82,7 @@ class FakeDdb {
         Items: [...this.items.values()].filter((item) =>
           (!values[':profile'] || item.sk === values[':profile']) &&
           (!values[':guest'] || item.entityType === values[':guest']) &&
+          (!values[':group'] || item.entityType === values[':group']) &&
           (!values[':enabled'] || item.enabled === values[':enabled'])),
       };
     }
@@ -258,6 +259,23 @@ test('public guest directory returns nicknames and IDs but no private profile da
   const serialized = response.body;
   assert.deepEqual(JSON.parse(serialized), { guests: [{ id: guest().guestId, nickname: 'Toninho', registrationRequired: false }] });
   assert.doesNotMatch(serialized, /351911111111|contact-pepper/);
+});
+
+test('groups filter the guest directory through independent many-to-many membership records', async () => {
+  const otherGuest = guest({
+    pk: 'GUEST#123e4567-e89b-42d3-a456-426614174001',
+    guestId: '123e4567-e89b-42d3-a456-426614174001',
+    nickname: 'Maria',
+  });
+  const group = { pk: 'GROUP#family', sk: 'PROFILE', entityType: 'group', groupId: 'family', name: 'Família', enabled: true };
+  const membership = { pk: 'GROUP#family', sk: `MEMBER#${guest().guestId}`, entityType: 'groupMember', groupId: 'family', guestId: guest().guestId };
+  const { handler } = makeHandler({ items: [guest(), otherGuest, group, membership] });
+  const groups = await handler(request('/api/groups'));
+  assert.deepEqual(JSON.parse(groups.body), { groups: [{ id: 'family', name: 'Família' }] });
+  const response = await handler({ ...request('/api/guests'), rawQueryString: 'group=family' });
+  assert.deepEqual(JSON.parse(response.body), { guests: [{ id: guest().guestId, nickname: 'Toninho', registrationRequired: false }] });
+  const rejected = await handler({ ...request('/api/guests'), rawQueryString: 'group=missing' });
+  assert.equal(rejected.statusCode, 404);
 });
 
 test('guest directory rejects missing CAPTCHA gate and accepts a valid Turnstile token', async () => {

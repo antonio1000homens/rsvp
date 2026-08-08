@@ -57,6 +57,7 @@ const SESSION_TTL_SECONDS = 12 * 60 * 60;
 const CAPTCHA_TTL_SECONDS = 15 * 60;
 const VALIDATION_MESSAGE = /^VALIDATION contact=([^&\s]+)&nonce=([A-Za-z0-9_-]{43})&sig=([A-Za-z0-9_-]{43})$/;
 const GUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const GROUP_ID = /^[a-z0-9][a-z0-9-]{0,62}$/;
 const TRIVIA_QUESTIONS = Object.freeze([
   { id: 'policia', question: 'Quem é o polícia?', answers: ['rui', 'checa'] },
   { id: 'vacas', question: 'Um dos irmãos Vacas', answers: ['rui', 'goncalo'] },
@@ -188,6 +189,12 @@ const validGuestId = (value) => {
   const guestId = String(value || '');
   if (!GUEST_ID.test(guestId)) throw new ApiError(400, 'invalid_guest');
   return guestId;
+};
+
+const validGroupId = (value) => {
+  const groupId = String(value || '');
+  if (!GROUP_ID.test(groupId)) throw new ApiError(400, 'invalid_group');
+  return groupId;
 };
 
 const conditionalFailure = (error) =>
@@ -419,14 +426,49 @@ export const createHandler = ({
     throw new ApiError(401, 'whatsapp_approval_required');
   };
 
-  const listGuests = async () => {
+  const getGroup = async (groupId) => {
+    const result = await ddb.send(new GetCommand({
+      TableName: env.RSVP_TABLE,
+      Key: { pk: `GROUP#${groupId}`, sk: 'PROFILE' },
+      ConsistentRead: true,
+    }));
+    if (!result.Item?.enabled || result.Item.entityType !== 'group') throw new ApiError(404, 'group_not_found');
+    return result.Item;
+  };
+
+  const listGroups = async () => {
     const result = await ddb.send(new ScanCommand({
       TableName: env.RSVP_TABLE,
-      FilterExpression: 'sk = :profile AND entityType = :guest AND enabled = :enabled',
-      ExpressionAttributeValues: { ':profile': 'PROFILE', ':guest': 'guest', ':enabled': true },
-      ProjectionExpression: 'guestId, nickname, identityStatus',
+      FilterExpression: 'sk = :profile AND entityType = :group AND enabled = :enabled',
+      ExpressionAttributeValues: { ':profile': 'PROFILE', ':group': 'group', ':enabled': true },
+      ProjectionExpression: 'groupId, name',
     }));
-    const guests = (result.Items || [])
+    const groups = (result.Items || []).map(({ groupId, name }) => ({ id: groupId, name }))
+      .sort((left, right) => left.name.localeCompare(right.name));
+    return jsonResponse(200, { groups });
+  };
+
+  const listGuests = async (groupId = '') => {
+    let profiles;
+    if (groupId) {
+      await getGroup(validGroupId(groupId));
+      const result = await ddb.send(new QueryCommand({
+        TableName: env.RSVP_TABLE,
+        KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
+        ExpressionAttributeValues: { ':pk': `GROUP#${groupId}`, ':prefix': 'MEMBER#' },
+        ConsistentRead: true,
+      }));
+      profiles = await Promise.all((result.Items || []).map(({ guestId }) => getGuest(guestId).catch(() => null)));
+    } else {
+      const result = await ddb.send(new ScanCommand({
+        TableName: env.RSVP_TABLE,
+        FilterExpression: 'sk = :profile AND entityType = :guest AND enabled = :enabled',
+        ExpressionAttributeValues: { ':profile': 'PROFILE', ':guest': 'guest', ':enabled': true },
+        ProjectionExpression: 'guestId, nickname, identityStatus',
+      }));
+      profiles = result.Items || [];
+    }
+    const guests = profiles.filter(Boolean)
       .filter(({ identityStatus }) => identityStatus !== 'to_add')
       .map(({ guestId, nickname, identityStatus }) => ({
         id: guestId,
@@ -779,10 +821,15 @@ export const createHandler = ({
     if (path === '/api/trivia/question' && method === 'GET') return triviaQuestion(event);
     if (path === '/api/trivia/answer' && method === 'POST') return triviaAnswer(event);
     if (path === '/api/contact/request' && method === 'POST') return requestNewContact(event);
+    if (path === '/api/groups' && method === 'GET') {
+      await requireTriviaGate(event);
+      return listGroups();
+    }
     if (path === '/api/guests' && method === 'GET') {
       await requireTriviaGate(event);
       const captchaCookies = [];
-      const response = await listGuests();
+      const groupId = new URLSearchParams(event.rawQueryString || '').get('group') || '';
+      const response = await listGuests(groupId);
       if (captchaCookies.length > 0) response.cookies = captchaCookies;
       return response;
     }

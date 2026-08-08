@@ -45,8 +45,11 @@ fi
 [ -n "${service_role_arn}" ] && [ "${service_role_arn}" != "None" ] || error "Missing CloudFormation service role ARN. Run scripts/bootstrap-aws.sh first."
 
 cd "${ROOT_DIR}"
-npm ci
-npm run build
+# skip rebuild if dist was pre-built (e.g. downloaded from CI artifact)
+if [ ! -f "${ROOT_DIR}/dist/lambda/index.mjs" ]; then
+  npm ci
+  npm run build
+fi
 
 cp "${ROOT_DIR}/dist/lambda/index.mjs" "${TEMP_DIR}/index.mjs"
 (

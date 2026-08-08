@@ -8,6 +8,7 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
   DynamoDBDocumentClient,
   GetCommand,
+  PutCommand,
   ScanCommand,
   TransactWriteCommand,
 } from '@aws-sdk/lib-dynamodb';
@@ -15,6 +16,16 @@ import { normalizeContactName, normalizeNickname } from '../shared/identity.mjs'
 
 const region = process.env.AWS_REGION || 'eu-west-2';
 const tableName = process.env.RSVP_TABLE || 'rsvp';
+const groupIdFor = (value) => String(value || '').normalize('NFKD')
+  .replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-PT').trim()
+  .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+
+const groupDetails = (value) => {
+  const name = String(value || '').trim().replace(/\s+/g, ' ');
+  const groupId = groupIdFor(name);
+  if (!name || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(groupId)) throw new Error('Provide a group name with letters or numbers.');
+  return { groupId, name };
+};
 const defaultClients = () => ({
   ddb: DynamoDBDocumentClient.from(new DynamoDBClient({ region }), {
     marshallOptions: { removeUndefinedValues: true },
@@ -117,6 +128,39 @@ export const listGuests = async ({ ddb }) => {
   for (const nickname of nicknames) process.stdout.write(`${nickname}\tenabled\n`);
 };
 
+export const addGroup = async ({ ddb, prompt = promptInterface() }) => {
+  try {
+    const group = groupDetails(await prompt.question('Group name: '));
+    const existing = await ddb.send(new GetCommand({ TableName: tableName, Key: { pk: `GROUP#${group.groupId}`, sk: 'PROFILE' } }));
+    if (existing.Item?.enabled) throw new Error('That group already exists.');
+    const timestamp = Math.floor(Date.now() / 1000);
+    await ddb.send(new PutCommand({
+      TableName: tableName,
+      Item: { pk: `GROUP#${group.groupId}`, sk: 'PROFILE', entityType: 'group', ...group, enabled: true, createdAt: timestamp, updatedAt: timestamp },
+      ConditionExpression: 'attribute_not_exists(pk)',
+    }));
+    process.stdout.write(`Created group ${group.name} (${group.groupId}).\n`);
+  } finally { prompt.close?.(); }
+};
+
+export const addGroupMember = async ({ ddb, prompt = promptInterface() }) => {
+  try {
+    const groupId = groupIdFor(await prompt.question('Group ID: '));
+    const group = await ddb.send(new GetCommand({ TableName: tableName, Key: { pk: `GROUP#${groupId}`, sk: 'PROFILE' } }));
+    if (!group.Item?.enabled || group.Item.entityType !== 'group') throw new Error('No enabled group has that ID.');
+    const nickname = normalizeNickname(await prompt.question('Guest nickname: '));
+    const guest = await findByNickname(ddb, nickname);
+    if (!guest?.enabled) throw new Error('No enabled guest has that nickname.');
+    const timestamp = Math.floor(Date.now() / 1000);
+    await ddb.send(new PutCommand({
+      TableName: tableName,
+      Item: { pk: `GROUP#${groupId}`, sk: `MEMBER#${guest.guestId}`, entityType: 'groupMember', groupId, guestId: guest.guestId, createdAt: timestamp },
+      ConditionExpression: 'attribute_not_exists(pk) AND attribute_not_exists(sk)',
+    }));
+    process.stdout.write(`Added ${guest.nickname} to ${group.Item.name}.\n`);
+  } finally { prompt.close?.(); }
+};
+
 export const disableGuest = async ({ ddb, prompt = promptInterface() }) => {
   try {
     const nicknameInput = await prompt.question('Public nickname to disable: ');
@@ -209,11 +253,13 @@ export const markContactAdded = async ({ ddb, prompt = promptInterface() }) => {
 
 export const main = async (command = process.argv[2], clients = defaultClients()) => {
   if (command === 'add') return addGuest({ ...clients });
+  if (command === 'group:add') return addGroup({ ...clients });
+  if (command === 'group:add-member') return addGroupMember({ ...clients });
   if (command === 'seed') return seedContacts({ ...clients, file: process.argv[3] });
   if (command === 'list') return listGuests({ ...clients });
   if (command === 'disable') return disableGuest({ ...clients });
   if (command === 'mark-added') return markContactAdded({ ...clients });
-  throw new Error('Usage: guest-admin.mjs <add|list|disable|mark-added>');
+  throw new Error('Usage: guest-admin.mjs <add|list|disable|mark-added|group:add|group:add-member>');
 };
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
