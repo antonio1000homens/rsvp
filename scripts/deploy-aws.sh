@@ -81,7 +81,9 @@ aws_cli cloudformation deploy \
   --no-fail-on-empty-changeset \
   --parameter-overrides \
     CodeBucket="${CODE_BUCKET}" \
-    FunctionCodeKey="${function_code_key}"
+    FunctionCodeKey="${function_code_key}" \
+    AvailabilityDays="${AVAILABILITY_DAYS:-19 December 2026,20 December 2026,21 December 2026,22 December 2026,23 December 2026}" \
+    SiteBucketName="$(aws_cli cloudformation describe-stacks --stack-name "${STACK_NAME}" --query "Stacks[0].Parameters[?ParameterKey=='SiteBucketName'].ParameterValue | [0]" --output text 2>/dev/null || echo "rsvp-$(aws_cli sts get-caller-identity --query Account --output text)-${REGION}-site")"
 
 site_bucket="$(aws_cli cloudformation describe-stacks \
   --stack-name "${STACK_NAME}" \

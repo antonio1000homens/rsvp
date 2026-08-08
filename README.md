@@ -111,6 +111,28 @@ AWS_PROFILE=windsor npm run group:add-member
 
 Existing installations remain compatible while no groups exist: the directory continues to show all enabled guests. Once groups are created, assign every guest who should be visible in a group; unassigned guests remain enabled but are not shown through a group selection.
 
+## RSVP availability and preferences
+
+After passkey authentication, each guest can save their availability across five days, guest count, dietary restrictions, restaurant preference, and whether they are available for lunch, dinner, or drinks. Dietary restrictions are returned only to the authenticated guest; the post-trivia landing page shows anonymous aggregate availability, meal, and restaurant totals.
+
+The availability labels are configured at deploy time. Use real dates or day names before production deployment:
+
+```bash
+AWS_PROFILE=windsor AVAILABILITY_DAYS='19 December 2026,20 December 2026,21 December 2026,22 December 2026,23 December 2026' bash scripts/deploy-aws.sh
+```
+
+`AVAILABILITY_DAYS` must contain exactly five distinct comma-separated labels. It defaults to 19–23 December 2026.
+
+## Event administration
+
+Grant a confirmed guest access to the in-app administration section:
+
+```bash
+AWS_PROFILE=windsor npm run guest:grant-admin
+```
+
+The administrator can view the fixed event dates, manage the restaurant choices that guests can select, and see group membership totals. Group creation and membership assignment remain host commands (`group:add` and `group:add-member`) so a public browser session cannot alter invitations.
+
 Disabling removes the nickname from the public directory, revokes existing sessions, and retains passkeys so that the guest can be re-enabled later. Keep any private mapping of nicknames to phone numbers outside this public repository.
 
 Friends who are not yet listed should first join the WhatsApp group. The host can then add them to the phone contacts and seed a record with both names. Once seeded, the nickname appears in the public list as an unconfirmed guest.

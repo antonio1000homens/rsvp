@@ -28,8 +28,10 @@ test('deployment script uses the scoped artifact prefix and protects the stack',
     aws: `#!/usr/bin/env bash
 echo "aws $*" >>"$MOCK_LOG"
 case "$*" in
-  *"OutputKey=='CloudFormationServiceRoleArn'"*) printf 'arn:aws:iam::243857182133:role/RsvpCloudFormationServiceRole\\n' ;;
-  *"OutputKey=='SiteBucketName'"*) printf 'rsvp-243857182133-eu-west-2-site\\n' ;;
+  *"OutputKey=='CloudFormationServiceRoleArn'"*) printf 'arn:aws:iam::123456789012:role/RsvpCloudFormationServiceRole\n' ;;
+  *"OutputKey=='SiteBucketName'"*) printf 'rsvp-123456789012-eu-west-2-site\n' ;;
+  *"ParameterKey=='SiteBucketName'"*) printf 'rsvp-123456789012-eu-west-2-eu-west-2-site\n' ;;
+  *"sts get-caller-identity"*) printf '123456789012\n' ;;
   *"OutputKey=='FunctionUrl'"*) printf 'https://example.lambda-url.eu-west-2.on.aws/\\n' ;;
 esac
 exit 0
@@ -50,7 +52,7 @@ exit 0
       MOCK_LOG: log,
       GITHUB_ACTIONS: 'true',
       GITHUB_SHA: '0123456789abcdef',
-      AWS_CLOUDFORMATION_ROLE_ARN: 'arn:aws:iam::243857182133:role/RsvpCloudFormationServiceRole',
+      AWS_CLOUDFORMATION_ROLE_ARN: 'arn:aws:iam::123456789012:role/RsvpCloudFormationServiceRole',
     },
     encoding: 'utf8',
   });
@@ -58,8 +60,8 @@ exit 0
   assert.equal(result.status, 0, result.stderr);
   const calls = await readFile(log, 'utf8');
   assert.match(calls, /s3 cp .*s3:\/\/aws2022-lambda-code\/rsvp\/0123456789abcdef\/lambda\.zip/);
-  assert.match(calls, /cloudformation deploy .*--role-arn arn:aws:iam::243857182133:role\/RsvpCloudFormationServiceRole/);
-  assert.match(calls, /s3 sync .*rsvp-243857182133-eu-west-2-site/);
+  assert.match(calls, /cloudformation deploy .*--role-arn arn:aws:iam::123456789012:role\/RsvpCloudFormationServiceRole/);
+  assert.match(calls, /s3 sync .*rsvp-123456789012-eu-west-2-site/);
   assert.match(calls, /update-termination-protection .*--enable-termination-protection/);
   assert.doesNotMatch(`${result.stdout}${result.stderr}${calls}`, /origin-secret.*[a-f0-9]{64}/i);
 });

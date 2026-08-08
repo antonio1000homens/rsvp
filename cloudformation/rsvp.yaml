@@ -11,7 +11,6 @@ Parameters:
     Description: S3 key for the RSVP Lambda ZIP.
   SiteBucketName:
     Type: String
-    Default: rsvp-243857182133-eu-west-2-site
   TableName:
     Type: String
     Default: rsvp
@@ -45,6 +44,10 @@ Parameters:
   WebauthnExpectedOrigin:
     Type: String
     Default: https://calcada2026.pt
+  AvailabilityDays:
+    Type: CommaDelimitedList
+    Default: 19 December 2026,20 December 2026,21 December 2026,22 December 2026,23 December 2026
+    Description: Exactly five labels for the RSVP availability window.
 
 Resources:
   SiteBucket:
@@ -206,6 +209,7 @@ Resources:
           WEBAUTHN_RP_ID: !Ref WebauthnRpId
           WEBAUTHN_EXPECTED_ORIGIN: !Ref WebauthnExpectedOrigin
           WEBAUTHN_RP_NAME: Calçada 2026 RSVP
+          RSVP_DAYS: !Join [',', !Ref AvailabilityDays]
       Tags:
         - Key: Application
           Value: rsvp

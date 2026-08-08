@@ -21,6 +21,7 @@
     "guest:mark-added": "node scripts/guest-admin.mjs mark-added",
     "group:add": "node scripts/guest-admin.mjs group:add",
     "group:add-member": "node scripts/guest-admin.mjs group:add-member",
+    "guest:grant-admin": "node scripts/guest-admin.mjs grant-admin",
     "whatsapp:configure": "node scripts/whatsapp-config.mjs configure",
     "whatsapp:copy-secret": "node scripts/whatsapp-config.mjs copy-secret",
     "whatsapp:rotate-secret": "node scripts/whatsapp-config.mjs rotate-secret",

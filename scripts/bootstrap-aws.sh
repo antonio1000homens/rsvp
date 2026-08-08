@@ -5,7 +5,6 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REGION="${AWS_REGION:-eu-west-2}"
 PROFILE_NAME="${AWS_PROFILE:-windsor}"
-ACCOUNT_ID="${AWS_ACCOUNT_ID:-243857182133}"
 STACK_NAME="${BOOTSTRAP_STACK_NAME:-rsvp-github-bootstrap}"
 REPOSITORY="${GITHUB_REPOSITORY:-antonio1000homens/rsvp}"
 ENVIRONMENT="${GITHUB_ENVIRONMENT:-production}"
@@ -33,8 +32,8 @@ if ! aws_cli sts get-caller-identity >/dev/null 2>&1; then
   aws sso login --profile "${PROFILE_NAME}"
 fi
 
-actual_account="$(aws_cli sts get-caller-identity --query Account --output text)"
-[ "${actual_account}" = "${ACCOUNT_ID}" ] || error "Expected AWS account ${ACCOUNT_ID}, got ${actual_account}."
+ACCOUNT_ID="$(aws_cli sts get-caller-identity --query Account --output text)"
+SITE_BUCKET_NAME="${SITE_BUCKET_NAME:-rsvp-${ACCOUNT_ID}-${REGION}-site}"
 
 oidc_provider="arn:aws:iam::${ACCOUNT_ID}:oidc-provider/token.actions.githubusercontent.com"
 aws_cli iam get-open-id-connect-provider --open-id-connect-provider-arn "${oidc_provider}" >/dev/null
@@ -86,7 +85,8 @@ aws_cli cloudformation deploy \
     GitHubOidcProviderArn="${oidc_provider}" \
     GitHubRepository="${REPOSITORY}" \
     GitHubEnvironment="${ENVIRONMENT}" \
-    CodeBucket="${CODE_BUCKET}"
+    CodeBucket="${CODE_BUCKET}" \
+    SiteBucketName="${SITE_BUCKET_NAME}"
 
 deploy_role_arn="$(aws_cli cloudformation describe-stacks \
   --stack-name "${STACK_NAME}" \

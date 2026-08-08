@@ -4,7 +4,6 @@ Description: Dedicated GitHub OIDC and CloudFormation service roles for the RSVP
 Parameters:
   GitHubOidcProviderArn:
     Type: String
-    Default: arn:aws:iam::243857182133:oidc-provider/token.actions.githubusercontent.com
   GitHubRepository:
     Type: String
     Default: antonio1000homens/rsvp
@@ -22,7 +21,6 @@ Parameters:
     Default: aws2022-lambda-code
   SiteBucketName:
     Type: String
-    Default: rsvp-243857182133-eu-west-2-site
   TableName:
     Type: String
     Default: rsvp
@@ -168,8 +166,15 @@ Resources:
                 token.actions.githubusercontent.com:aud: sts.amazonaws.com
               StringLike:
                 token.actions.githubusercontent.com:sub:
-                  - !Sub repo:${GitHubRepository}:environment:${GitHubEnvironment}
-                  - !Sub repo:${GitHubRepository}:ref:refs/heads/${GitHubBranch}
+                  # GitHub now appends numeric IDs: repo:owner@ID/repo@ID:...
+                  - !Sub
+                    - "repo:${Owner}*/${Repo}*:environment:${GitHubEnvironment}"
+                    - Owner: !Select [0, !Split ['/', !Ref GitHubRepository]]
+                      Repo: !Select [1, !Split ['/', !Ref GitHubRepository]]
+                  - !Sub
+                    - "repo:${Owner}*/${Repo}*:ref:refs/heads/${GitHubBranch}"
+                    - Owner: !Select [0, !Split ['/', !Ref GitHubRepository]]
+                      Repo: !Select [1, !Split ['/', !Ref GitHubRepository]]
       Policies:
         - PolicyName: DeployRsvpStack
           PolicyDocument:

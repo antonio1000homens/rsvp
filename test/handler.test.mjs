@@ -83,6 +83,7 @@ class FakeDdb {
           (!values[':profile'] || item.sk === values[':profile']) &&
           (!values[':guest'] || item.entityType === values[':guest']) &&
           (!values[':group'] || item.entityType === values[':group']) &&
+          (!values[':response'] || item.entityType === values[':response']) &&
           (!values[':enabled'] || item.enabled === values[':enabled'])),
       };
     }
@@ -276,6 +277,37 @@ test('groups filter the guest directory through independent many-to-many members
   assert.deepEqual(JSON.parse(response.body), { guests: [{ id: guest().guestId, nickname: 'Toninho', registrationRequired: false }] });
   const rejected = await handler({ ...request('/api/guests'), rawQueryString: 'group=missing' });
   assert.equal(rejected.statusCode, 404);
+});
+
+test('an authenticated guest can save RSVP choices and the trivia-gated summary is aggregate-only', async () => {
+  const { handler } = makeHandler({ items: [guest()] });
+  const session = signToken({ type: 'session', guestId: guest().guestId, sessionVersion: 1, exp: fixedNow + 600 }, values['/rsvp/session-secret']);
+  const response = await handler(request('/api/rsvp', {
+    method: 'PUT',
+    cookies: [`rsvp_session=${session}`],
+    body: {
+      availableDays: ['19 December 2026', '21 December 2026'], guestCount: 2, mealTypes: ['dinner', 'drinks'],
+      restaurantChoice: 'Tasquinha', dietaryRestrictions: 'Vegetariano',
+    },
+  }));
+  assert.equal(response.statusCode, 200);
+  const own = await handler(request('/api/rsvp', { cookies: [`rsvp_session=${session}`] }));
+  assert.equal(JSON.parse(own.body).response.dietaryRestrictions, 'Vegetariano');
+  const summary = await handler(request('/api/rsvp/summary'));
+  const serialized = summary.body;
+  assert.deepEqual(JSON.parse(serialized).byDay, { '19 December 2026': 2, '20 December 2026': 0, '21 December 2026': 2, '22 December 2026': 0, '23 December 2026': 0 });
+  assert.doesNotMatch(serialized, /Vegetariano/);
+});
+
+test('only an admin session can manage restaurant choices', async () => {
+  const admin = guest({ isAdmin: true });
+  const { handler } = makeHandler({ items: [admin] });
+  const session = signToken({ type: 'session', guestId: admin.guestId, sessionVersion: 1, exp: fixedNow + 600 }, values['/rsvp/session-secret']);
+  const saved = await handler(request('/api/admin/settings', { method: 'PUT', cookies: [`rsvp_session=${session}`], body: { restaurantChoices: ['A Tasca', 'O Pátio'] } }));
+  assert.equal(saved.statusCode, 200);
+  assert.deepEqual(JSON.parse(saved.body).restaurantChoices, ['A Tasca', 'O Pátio']);
+  const nonAdmin = await makeHandler({ items: [guest()] }).handler(request('/api/admin/settings', { cookies: [`rsvp_session=${session}`] }));
+  assert.equal(nonAdmin.statusCode, 403);
 });
 
 test('guest directory rejects missing CAPTCHA gate and accepts a valid Turnstile token', async () => {

@@ -29,6 +29,12 @@
           <select id="group-select"></select>
         </div>
         <div id="guest-list" class="guest-list" aria-live="polite"></div>
+        <section id="rsvp-summary" class="rsvp-summary" hidden aria-live="polite">
+          <h2>Disponibilidade geral</h2>
+          <p id="rsvp-summary-total" class="intro"></p>
+          <div id="availability-chart" class="availability-chart"></div>
+          <p id="rsvp-summary-preferences" class="status"></p>
+        </section>
         <hr>
         <h2>Não encontro o meu nome</h2>
         <p class="intro">Se calhar nao tenho o teu whatsapp, passa a validacao para seres adicionado</p>
@@ -64,7 +70,37 @@
 
       <section id="session-section" hidden>
         <p class="intro">Sessão iniciada como <strong id="session-name"></strong>.</p>
-        <p>A sua identidade foi verificada. As perguntas do RSVP serão adicionadas numa próxima fase.</p>
+        <form id="rsvp-form" class="rsvp-form">
+          <fieldset>
+            <legend>Em que dias podes?</legend>
+            <div id="availability-days" class="choice-grid"></div>
+          </fieldset>
+          <label for="guest-count">Quantas pessoas, incluindo-te?</label>
+          <input id="guest-count" name="guestCount" type="number" min="1" max="12" required>
+          <fieldset>
+            <legend>O que preferes?</legend>
+            <div class="choice-grid">
+              <label><input type="checkbox" name="mealTypes" value="lunch"> Almoço</label>
+              <label><input type="checkbox" name="mealTypes" value="dinner"> Jantar</label>
+              <label><input type="checkbox" name="mealTypes" value="drinks"> Só bebidas</label>
+            </div>
+          </fieldset>
+          <label for="restaurant-choice">Restaurante preferido</label>
+          <select id="restaurant-choice" name="restaurantChoice" required></select>
+          <label for="dietary-restrictions">Restrições alimentares</label>
+          <textarea id="dietary-restrictions" name="dietaryRestrictions" maxlength="500" placeholder="Nenhuma"></textarea>
+          <button type="submit">Guardar disponibilidade</button>
+        </form>
+        <section id="admin-section" class="admin-section" hidden>
+          <h2>Administração do evento</h2>
+          <p id="admin-dates" class="intro"></p>
+          <form id="admin-settings-form" class="rsvp-form">
+            <label for="admin-restaurants">Restaurantes (um por linha)</label>
+            <textarea id="admin-restaurants" name="restaurants" maxlength="2400" placeholder="Nome do restaurante"></textarea>
+            <button type="submit">Guardar opções de restaurante</button>
+          </form>
+          <p id="admin-groups" class="status"></p>
+        </section>
         <div class="actions">
           <button id="add-passkey" type="button">Adicionar outra chave de acesso</button>
           <button id="logout" class="secondary" type="button">Terminar sessão</button>

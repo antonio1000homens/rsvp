@@ -11,6 +11,7 @@ import {
   PutCommand,
   ScanCommand,
   TransactWriteCommand,
+  UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { normalizeContactName, normalizeNickname } from '../shared/identity.mjs';
 
@@ -161,6 +162,21 @@ export const addGroupMember = async ({ ddb, prompt = promptInterface() }) => {
   } finally { prompt.close?.(); }
 };
 
+export const grantAdmin = async ({ ddb, prompt = promptInterface() }) => {
+  try {
+    const nickname = normalizeNickname(await prompt.question('Guest nickname to make admin: '));
+    const guest = await findByNickname(ddb, nickname);
+    if (!guest?.enabled) throw new Error('No enabled guest has that nickname.');
+    await ddb.send(new UpdateCommand({
+      TableName: tableName, Key: { pk: guest.pk, sk: guest.sk },
+      UpdateExpression: 'SET isAdmin = :admin, updatedAt = :now',
+      ConditionExpression: 'enabled = :enabled',
+      ExpressionAttributeValues: { ':admin': true, ':enabled': true, ':now': Math.floor(Date.now() / 1000) },
+    }));
+    process.stdout.write(`${guest.nickname} can now administer the event.\n`);
+  } finally { prompt.close?.(); }
+};
+
 export const disableGuest = async ({ ddb, prompt = promptInterface() }) => {
   try {
     const nicknameInput = await prompt.question('Public nickname to disable: ');
@@ -255,11 +271,12 @@ export const main = async (command = process.argv[2], clients = defaultClients()
   if (command === 'add') return addGuest({ ...clients });
   if (command === 'group:add') return addGroup({ ...clients });
   if (command === 'group:add-member') return addGroupMember({ ...clients });
+  if (command === 'grant-admin') return grantAdmin({ ...clients });
   if (command === 'seed') return seedContacts({ ...clients, file: process.argv[3] });
   if (command === 'list') return listGuests({ ...clients });
   if (command === 'disable') return disableGuest({ ...clients });
   if (command === 'mark-added') return markContactAdded({ ...clients });
-  throw new Error('Usage: guest-admin.mjs <add|list|disable|mark-added|group:add|group:add-member>');
+  throw new Error('Usage: guest-admin.mjs <add|list|disable|mark-added|group:add|group:add-member|grant-admin>');
 };
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

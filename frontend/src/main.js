@@ -6,6 +6,10 @@ const elements = {
   guestList: document.querySelector('#guest-list'),
   groupPicker: document.querySelector('#group-picker'),
   groupSelect: document.querySelector('#group-select'),
+  rsvpSummary: document.querySelector('#rsvp-summary'),
+  rsvpSummaryTotal: document.querySelector('#rsvp-summary-total'),
+  availabilityChart: document.querySelector('#availability-chart'),
+  rsvpSummaryPreferences: document.querySelector('#rsvp-summary-preferences'),
   captcha: document.querySelector('#captcha'),
   captchaStatus: document.querySelector('#captcha-status'),
   triviaForm: document.querySelector('#trivia-form'),
@@ -25,6 +29,14 @@ const elements = {
   sessionSection: document.querySelector('#session-section'),
   sessionName: document.querySelector('#session-name'),
   sessionStatus: document.querySelector('#session-status'),
+  restaurantChoice: document.querySelector('#restaurant-choice'),
+  adminSection: document.querySelector('#admin-section'),
+  adminDates: document.querySelector('#admin-dates'),
+  adminSettingsForm: document.querySelector('#admin-settings-form'),
+  adminRestaurants: document.querySelector('#admin-restaurants'),
+  adminGroups: document.querySelector('#admin-groups'),
+  rsvpForm: document.querySelector('#rsvp-form'),
+  availabilityDays: document.querySelector('#availability-days'),
   addPasskey: document.querySelector('#add-passkey'),
   logout: document.querySelector('#logout'),
   registrationStatus: document.querySelector('#registration-status'),
@@ -57,6 +69,7 @@ const api = async (path, options = {}) => {
 };
 
 const post = (path, payload = {}) => api(path, { method: 'POST', body: JSON.stringify(payload) });
+const put = (path, payload = {}) => api(path, { method: 'PUT', body: JSON.stringify(payload) });
 
 const showAuthenticated = (nickname) => {
   pollGeneration += 1;
@@ -65,6 +78,71 @@ const showAuthenticated = (nickname) => {
   elements.sessionSection.hidden = false;
   elements.sessionName.textContent = nickname;
   elements.sessionStatus.textContent = '';
+  loadRsvpForm();
+  loadAdmin();
+};
+
+const renderRsvpForm = ({ days, response }) => {
+  elements.availabilityDays.replaceChildren();
+  for (const day of days) {
+    const label = document.createElement('label');
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox'; checkbox.name = 'availableDays'; checkbox.value = day;
+    checkbox.checked = response?.availableDays?.includes(day) || false;
+    label.append(checkbox, ` ${day}`);
+    elements.availabilityDays.append(label);
+  }
+  elements.rsvpForm.elements.guestCount.value = response?.guestCount || '';
+  elements.restaurantChoice.replaceChildren();
+  const restaurantChoices = response?.restaurantChoices || [];
+  const choices = restaurantChoices.length ? restaurantChoices : ['Por decidir'];
+  for (const choice of choices) elements.restaurantChoice.add(new Option(choice, choice));
+  if (response?.restaurantChoice && !choices.includes(response.restaurantChoice)) elements.restaurantChoice.add(new Option(response.restaurantChoice, response.restaurantChoice));
+  elements.rsvpForm.elements.restaurantChoice.value = response?.restaurantChoice || choices[0];
+  elements.rsvpForm.elements.dietaryRestrictions.value = response?.dietaryRestrictions || '';
+  for (const checkbox of elements.rsvpForm.querySelectorAll('input[name="mealTypes"]')) {
+    checkbox.checked = response?.mealTypes?.includes(checkbox.value) || false;
+  }
+};
+
+const loadRsvpForm = async () => {
+  try {
+    const data = await api('/api/rsvp');
+    renderRsvpForm({ ...data, response: data.response ? { ...data.response, restaurantChoices: data.restaurantChoices } : { restaurantChoices: data.restaurantChoices } });
+  } catch { elements.sessionStatus.textContent = 'Não foi possível carregar o RSVP.'; }
+};
+
+const loadAdmin = async () => {
+  try {
+    const settings = await api('/api/admin/settings');
+    elements.adminSection.hidden = false;
+    elements.adminDates.textContent = settings.days.join(' · ');
+    elements.adminRestaurants.value = settings.restaurantChoices.join('\n');
+    const { groups } = await api('/api/admin/groups');
+    elements.adminGroups.textContent = groups.length ? groups.map((group) => `${group.name}: ${group.members} membro(s)`).join(' · ') : 'Ainda não existem grupos.';
+  } catch (error) {
+    if (error.status !== 403) elements.adminSection.hidden = true;
+  }
+};
+
+const loadRsvpSummary = async () => {
+  try {
+    const summary = await api('/api/rsvp/summary');
+    const maximum = Math.max(1, ...Object.values(summary.byDay));
+    elements.availabilityChart.replaceChildren();
+    for (const [day, count] of Object.entries(summary.byDay)) {
+      const row = document.createElement('div');
+      row.className = 'availability-row';
+      const label = document.createElement('span'); label.textContent = day;
+      const bar = document.createElement('span'); bar.className = 'availability-bar'; bar.style.setProperty('--availability', `${(count / maximum) * 100}%`); bar.textContent = `${count}`;
+      row.append(label, bar); elements.availabilityChart.append(row);
+    }
+    elements.rsvpSummaryTotal.textContent = `${summary.guests} pessoa(s) em ${summary.responses} resposta(s).`;
+    const meals = Object.entries(summary.byMeal).filter(([, count]) => count).map(([meal, count]) => `${meal}: ${count}`).join(' · ');
+    const restaurants = Object.entries(summary.restaurants).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([name, count]) => `${name}: ${count}`).join(' · ');
+    elements.rsvpSummaryPreferences.textContent = [meals, restaurants].filter(Boolean).join(' — ');
+    elements.rsvpSummary.hidden = false;
+  } catch { elements.rsvpSummary.hidden = true; }
 };
 
 const showFlow = () => {
@@ -248,7 +326,7 @@ const answerTrivia = async (event) => {
     elements.triviaForm.hidden = true;
     elements.triviaStatus.textContent = 'Resposta correta.';
     elements.newContactForm.hidden = false;
-    await loadGroups();
+    await Promise.all([loadGroups(), loadRsvpSummary()]);
   } catch (error) {
     elements.triviaStatus.textContent = error.code === 'trivia_incorrect'
       ? 'Resposta incorreta.'
@@ -317,6 +395,31 @@ elements.triviaForm.addEventListener('submit', answerTrivia);
 elements.groupSelect.addEventListener('change', async () => {
   selectedGroup = elements.groupSelect.value;
   await loadGuests();
+});
+elements.rsvpForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const form = new FormData(elements.rsvpForm);
+  const payload = {
+    availableDays: form.getAll('availableDays'),
+    guestCount: Number(form.get('guestCount')),
+    mealTypes: form.getAll('mealTypes'),
+    restaurantChoice: form.get('restaurantChoice'),
+    dietaryRestrictions: form.get('dietaryRestrictions'),
+  };
+  elements.sessionStatus.textContent = 'A guardar…';
+  try {
+    await put('/api/rsvp', payload);
+    elements.sessionStatus.textContent = 'Disponibilidade guardada.';
+  } catch { elements.sessionStatus.textContent = 'Não foi possível guardar. Confirma as opções e tenta novamente.'; }
+});
+elements.adminSettingsForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const restaurantChoices = elements.adminRestaurants.value.split(/\r?\n/).map((choice) => choice.trim()).filter(Boolean);
+  try {
+    await put('/api/admin/settings', { restaurantChoices });
+    elements.sessionStatus.textContent = 'Opções do evento guardadas.';
+    await loadRsvpForm();
+  } catch { elements.sessionStatus.textContent = 'Não foi possível guardar as opções do evento.'; }
 });
 elements.newContactForm.addEventListener('submit', async (event) => {
   event.preventDefault();

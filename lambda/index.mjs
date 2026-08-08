@@ -197,6 +197,25 @@ const validGroupId = (value) => {
   return groupId;
 };
 
+const availabilityDays = (env) => {
+  const days = String(env.RSVP_DAYS || '19 December 2026,20 December 2026,21 December 2026,22 December 2026,23 December 2026').split(',').map((day) => day.trim()).filter(Boolean);
+  if (days.length !== 5 || new Set(days).size !== 5 || days.some((day) => day.length > 80)) throw new ApiError(503, 'rsvp_configuration_unavailable');
+  return days;
+};
+
+const responseChoices = (body, days) => {
+  const availableDays = Array.isArray(body.availableDays) ? [...new Set(body.availableDays.map(String))] : [];
+  const mealTypes = Array.isArray(body.mealTypes) ? [...new Set(body.mealTypes.map(String))] : [];
+  const guestCount = Number(body.guestCount);
+  const dietaryRestrictions = String(body.dietaryRestrictions || '').trim();
+  const restaurantChoice = String(body.restaurantChoice || '').trim().replace(/\s+/g, ' ');
+  if (!availableDays.length || !availableDays.every((day) => days.includes(day))) throw new ApiError(400, 'invalid_availability');
+  if (!mealTypes.length || !mealTypes.every((type) => ['lunch', 'dinner', 'drinks'].includes(type))) throw new ApiError(400, 'invalid_meal_types');
+  if (!Number.isInteger(guestCount) || guestCount < 1 || guestCount > 12) throw new ApiError(400, 'invalid_guest_count');
+  if (dietaryRestrictions.length > 500 || restaurantChoice.length < 2 || restaurantChoice.length > 120) throw new ApiError(400, 'invalid_preferences');
+  return { availableDays, mealTypes, guestCount, dietaryRestrictions, restaurantChoice };
+};
+
 const conditionalFailure = (error) =>
   error?.name === 'ConditionalCheckFailedException' || error?.name === 'TransactionCanceledException';
 
@@ -477,6 +496,96 @@ export const createHandler = ({
       }))
       .sort((left, right) => left.nickname.localeCompare(right.nickname));
     return jsonResponse(200, { guests });
+  };
+
+  const rsvpForGuest = async (guestId) => {
+    const result = await ddb.send(new GetCommand({
+      TableName: env.RSVP_TABLE,
+      Key: { pk: `RSVP#${guestId}`, sk: 'RESPONSE' },
+      ConsistentRead: true,
+    }));
+    return result.Item || null;
+  };
+
+  const rsvpConfig = async () => {
+    const result = await ddb.send(new GetCommand({ TableName: env.RSVP_TABLE, Key: { pk: 'EVENT#DEFAULT', sk: 'SETTINGS' }, ConsistentRead: true }));
+    return { days: availabilityDays(env), restaurantChoices: result.Item?.restaurantChoices || [] };
+  };
+
+  const requireAdmin = async (event) => {
+    const guest = await readSessionGuest(event);
+    if (!guest) throw new ApiError(401, 'authentication_required');
+    if (!guest.isAdmin) throw new ApiError(403, 'admin_required');
+    return guest;
+  };
+
+  const getRsvp = async (event) => {
+    const guest = await readSessionGuest(event);
+    if (!guest) throw new ApiError(401, 'authentication_required');
+    const response = await rsvpForGuest(guest.guestId);
+    return jsonResponse(200, { ...(await rsvpConfig()), response: response ? {
+      availableDays: response.availableDays, mealTypes: response.mealTypes, guestCount: response.guestCount,
+      dietaryRestrictions: response.dietaryRestrictions, restaurantChoice: response.restaurantChoice,
+    } : null });
+  };
+
+  const saveRsvp = async (event) => {
+    const guest = await readSessionGuest(event);
+    if (!guest) throw new ApiError(401, 'authentication_required');
+    const config = await rsvpConfig();
+    const choices = responseChoices(parseJsonBody(event), config.days);
+    if (config.restaurantChoices.length && !config.restaurantChoices.includes(choices.restaurantChoice)) throw new ApiError(400, 'invalid_restaurant_choice');
+    await ddb.send(new PutCommand({
+      TableName: env.RSVP_TABLE,
+      Item: { pk: `RSVP#${guest.guestId}`, sk: 'RESPONSE', entityType: 'rsvpResponse', guestId: guest.guestId, ...choices, updatedAt: now() },
+    }));
+    return jsonResponse(200, { saved: true, ...config, response: choices });
+  };
+
+  const rsvpSummary = async () => {
+    const { days } = await rsvpConfig();
+    const result = await ddb.send(new ScanCommand({
+      TableName: env.RSVP_TABLE,
+      FilterExpression: 'entityType = :response',
+      ExpressionAttributeValues: { ':response': 'rsvpResponse' },
+      ProjectionExpression: 'availableDays, mealTypes, guestCount, restaurantChoice',
+    }));
+    const responses = result.Items || [];
+    const byDay = Object.fromEntries(days.map((day) => [day, 0]));
+    const byMeal = { lunch: 0, dinner: 0, drinks: 0 };
+    const restaurants = {};
+    let guests = 0;
+    for (const response of responses) {
+      guests += Number(response.guestCount || 0);
+      for (const day of response.availableDays || []) if (day in byDay) byDay[day] += Number(response.guestCount || 0);
+      for (const meal of response.mealTypes || []) if (meal in byMeal) byMeal[meal] += Number(response.guestCount || 0);
+      if (response.restaurantChoice) restaurants[response.restaurantChoice] = (restaurants[response.restaurantChoice] || 0) + Number(response.guestCount || 0);
+    }
+    return jsonResponse(200, { responses: responses.length, guests, byDay, byMeal, restaurants });
+  };
+
+  const adminSettings = async (event) => {
+    await requireAdmin(event);
+    return jsonResponse(200, await rsvpConfig());
+  };
+
+  const saveAdminSettings = async (event) => {
+    await requireAdmin(event);
+    const body = parseJsonBody(event);
+    const restaurantChoices = Array.isArray(body.restaurantChoices) ? [...new Set(body.restaurantChoices.map((choice) => String(choice).trim().replace(/\s+/g, ' ')).filter(Boolean))] : null;
+    if (!restaurantChoices || restaurantChoices.length > 20 || restaurantChoices.some((choice) => choice.length > 120)) throw new ApiError(400, 'invalid_restaurant_choices');
+    await ddb.send(new PutCommand({ TableName: env.RSVP_TABLE, Item: { pk: 'EVENT#DEFAULT', sk: 'SETTINGS', entityType: 'eventSettings', restaurantChoices, updatedAt: now() } }));
+    return jsonResponse(200, { saved: true, ...(await rsvpConfig()) });
+  };
+
+  const adminGroups = async (event) => {
+    await requireAdmin(event);
+    const groups = JSON.parse((await listGroups()).body).groups;
+    const withCounts = await Promise.all(groups.map(async (group) => {
+      const members = await ddb.send(new QueryCommand({ TableName: env.RSVP_TABLE, KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)', ExpressionAttributeValues: { ':pk': `GROUP#${group.id}`, ':prefix': 'MEMBER#' }, Select: 'COUNT' }));
+      return { ...group, members: Number(members.Count || 0) };
+    }));
+    return jsonResponse(200, { groups: withCounts });
   };
 
   const requestNewContact = async (event) => {
@@ -833,6 +942,15 @@ export const createHandler = ({
       if (captchaCookies.length > 0) response.cookies = captchaCookies;
       return response;
     }
+    if (path === '/api/rsvp/summary' && method === 'GET') {
+      await requireTriviaGate(event);
+      return rsvpSummary();
+    }
+    if (path === '/api/rsvp' && method === 'GET') return getRsvp(event);
+    if (path === '/api/rsvp' && method === 'PUT') return saveRsvp(event);
+    if (path === '/api/admin/settings' && method === 'GET') return adminSettings(event);
+    if (path === '/api/admin/settings' && method === 'PUT') return saveAdminSettings(event);
+    if (path === '/api/admin/groups' && method === 'GET') return adminGroups(event);
     if (path === '/api/auth/start' && method === 'POST') return authStart(event);
     if (path === '/api/register/start' && method === 'POST') return startFriendRegistration(event);
     if (path === '/api/register/status' && method === 'GET') return registrationStatus(event);
