@@ -18,6 +18,7 @@
     "guest:seed": "node scripts/guest-admin.mjs seed",
     "guest:list": "node scripts/guest-admin.mjs list",
     "guest:disable": "node scripts/guest-admin.mjs disable",
+    "guest:mark-added": "node scripts/guest-admin.mjs mark-added",
     "whatsapp:configure": "node scripts/whatsapp-config.mjs configure",
     "whatsapp:copy-secret": "node scripts/whatsapp-config.mjs copy-secret",
     "whatsapp:rotate-secret": "node scripts/whatsapp-config.mjs rotate-secret",

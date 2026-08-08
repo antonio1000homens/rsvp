@@ -95,6 +95,7 @@ List or disable enabled guests:
 ```bash
 AWS_PROFILE=windsor npm run guest:list
 AWS_PROFILE=windsor npm run guest:disable
+AWS_PROFILE=windsor npm run guest:mark-added
 ```
 
 Disabling removes the nickname from the public directory, revokes existing sessions, and retains passkeys so that the guest can be re-enabled later. Keep any private mapping of nicknames to phone numbers outside this public repository.
