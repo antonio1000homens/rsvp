@@ -473,7 +473,8 @@ export const createHandler = ({
       TableName: env.RSVP_TABLE,
       FilterExpression: 'sk = :profile AND entityType = :group AND enabled = :enabled',
       ExpressionAttributeValues: { ':profile': 'PROFILE', ':group': 'group', ':enabled': true },
-      ProjectionExpression: 'groupId, name',
+      ExpressionAttributeNames: { '#name': 'name' },
+      ProjectionExpression: 'groupId, #name',
     }));
     const groups = (result.Items || []).map(({ groupId, name }) => ({ id: groupId, name }))
       .sort((left, right) => left.name.localeCompare(right.name));
