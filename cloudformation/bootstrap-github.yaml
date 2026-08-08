@@ -238,7 +238,9 @@ Resources:
                 Effect: Allow
                 Action:
                   - dynamodb:DescribeTable
+                  - dynamodb:DescribeTimeToLive
                   - lambda:GetFunction
+                  - lambda:GetFunctionConfiguration
                   - lambda:GetFunctionConcurrency
                   - lambda:GetFunctionUrlConfig
                   - logs:DescribeLogGroups

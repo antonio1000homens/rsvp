@@ -303,11 +303,22 @@ test('only an admin session can manage restaurant choices', async () => {
   const admin = guest({ isAdmin: true });
   const { handler } = makeHandler({ items: [admin] });
   const session = signToken({ type: 'session', guestId: admin.guestId, sessionVersion: 1, exp: fixedNow + 600 }, values['/rsvp/session-secret']);
-  const saved = await handler(request('/api/admin/settings', { method: 'PUT', cookies: [`rsvp_session=${session}`], body: { restaurantChoices: ['A Tasca', 'O Pátio'] } }));
+  const saved = await handler(request('/api/admin/settings', { method: 'PUT', cookies: [`rsvp_session=${session}`], body: { restaurantChoices: ['A Tasca', 'O Pátio'], triviaQuestions: [{ question: 'Quem organiza?', answers: ['Antonio'] }] } }));
   assert.equal(saved.statusCode, 200);
   assert.deepEqual(JSON.parse(saved.body).restaurantChoices, ['A Tasca', 'O Pátio']);
+  assert.equal(JSON.parse(saved.body).triviaQuestions[0].question, 'Quem organiza?');
   const nonAdmin = await makeHandler({ items: [guest()] }).handler(request('/api/admin/settings', { cookies: [`rsvp_session=${session}`] }));
   assert.equal(nonAdmin.statusCode, 403);
+});
+
+test('trivia is served from event settings, not Lambda constants', async () => {
+  const settings = { pk: 'EVENT#DEFAULT', sk: 'SETTINGS', entityType: 'eventSettings', triviaQuestions: [{ id: 'q1', question: 'Pergunta configurada?', answers: ['sim'] }] };
+  const { handler } = makeHandler({ items: [settings] });
+  const question = await handler(request('/api/trivia/question'));
+  const payload = JSON.parse(question.body);
+  assert.equal(payload.question, 'Pergunta configurada?');
+  const answer = await handler(request('/api/trivia/answer', { method: 'POST', body: { challenge: payload.challenge, answer: 'sim' } }));
+  assert.equal(answer.statusCode, 200);
 });
 
 test('guest directory rejects missing CAPTCHA gate and accepts a valid Turnstile token', async () => {

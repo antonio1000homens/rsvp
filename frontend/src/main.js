@@ -34,6 +34,7 @@ const elements = {
   adminDates: document.querySelector('#admin-dates'),
   adminSettingsForm: document.querySelector('#admin-settings-form'),
   adminRestaurants: document.querySelector('#admin-restaurants'),
+  adminTrivia: document.querySelector('#admin-trivia'),
   adminGroups: document.querySelector('#admin-groups'),
   rsvpForm: document.querySelector('#rsvp-form'),
   availabilityDays: document.querySelector('#availability-days'),
@@ -118,6 +119,7 @@ const loadAdmin = async () => {
     elements.adminSection.hidden = false;
     elements.adminDates.textContent = settings.days.join(' · ');
     elements.adminRestaurants.value = settings.restaurantChoices.join('\n');
+    elements.adminTrivia.value = settings.triviaQuestions.map((item) => `${item.question} | ${item.answers.join(', ')}`).join('\n');
     const { groups } = await api('/api/admin/groups');
     elements.adminGroups.textContent = groups.length ? groups.map((group) => `${group.name}: ${group.members} membro(s)`).join(' · ') : 'Ainda não existem grupos.';
   } catch (error) {
@@ -416,10 +418,15 @@ elements.adminSettingsForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   const restaurantChoices = elements.adminRestaurants.value.split(/\r?\n/).map((choice) => choice.trim()).filter(Boolean);
   try {
-    await put('/api/admin/settings', { restaurantChoices });
+    const triviaQuestions = elements.adminTrivia.value.split(/\r?\n/).filter(Boolean).map((line) => {
+      const separator = line.indexOf('|');
+      if (separator < 1) throw new Error('invalid_trivia_questions');
+      return { question: line.slice(0, separator).trim(), answers: line.slice(separator + 1).split(',').map((answer) => answer.trim()).filter(Boolean) };
+    });
+    await put('/api/admin/settings', { restaurantChoices, triviaQuestions });
     elements.sessionStatus.textContent = 'Opções do evento guardadas.';
     await loadRsvpForm();
-  } catch { elements.sessionStatus.textContent = 'Não foi possível guardar as opções do evento.'; }
+  } catch { elements.sessionStatus.textContent = 'Não foi possível guardar as opções do evento. Confirma o formato das perguntas.'; }
 });
 elements.newContactForm.addEventListener('submit', async (event) => {
   event.preventDefault();

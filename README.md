@@ -131,7 +131,7 @@ Grant a confirmed guest access to the in-app administration section:
 AWS_PROFILE=windsor npm run guest:grant-admin
 ```
 
-The administrator can view the fixed event dates, manage the restaurant choices that guests can select, and see group membership totals. Group creation and membership assignment remain host commands (`group:add` and `group:add-member`) so a public browser session cannot alter invitations.
+The administrator can view the fixed event dates, manage the restaurant choices that guests can select, configure the trivia questions and accepted answers, and see group membership totals. Trivia is not stored in Lambda source: enter one question per line as `Question | accepted answer, alternative answer`. Group creation and membership assignment remain host commands (`group:add` and `group:add-member`) so a public browser session cannot alter invitations.
 
 Disabling removes the nickname from the public directory, revokes existing sessions, and retains passkeys so that the guest can be re-enabled later. Keep any private mapping of nicknames to phone numbers outside this public repository.
 

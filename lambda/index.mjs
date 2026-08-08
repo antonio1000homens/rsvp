@@ -58,10 +58,6 @@ const CAPTCHA_TTL_SECONDS = 15 * 60;
 const VALIDATION_MESSAGE = /^VALIDATION contact=([^&\s]+)&nonce=([A-Za-z0-9_-]{43})&sig=([A-Za-z0-9_-]{43})$/;
 const GUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const GROUP_ID = /^[a-z0-9][a-z0-9-]{0,62}$/;
-const TRIVIA_QUESTIONS = Object.freeze([
-  { id: 'policia', question: 'Quem é o polícia?', answers: ['rui', 'checa'] },
-  { id: 'vacas', question: 'Um dos irmãos Vacas', answers: ['rui', 'goncalo'] },
-]);
 const CONTACT_REQUEST_NUMBER = '+447810354233';
 
 const jsonResponse = (statusCode, payload, { headers = {}, cookies = [] } = {}) => ({
@@ -227,6 +223,18 @@ export const triviaAnswerMatches = (answer, acceptedAnswers) => {
   return acceptedAnswers.some((accepted) => normalized.includes(normalizeTriviaAnswer(accepted)));
 };
 
+const validateTriviaQuestions = (raw) => {
+  if (!Array.isArray(raw) || raw.length < 1 || raw.length > 20) throw new ApiError(400, 'invalid_trivia_questions');
+  return raw.map((item, index) => {
+    const question = String(item?.question || '').trim().replace(/\s+/g, ' ');
+    const answers = Array.isArray(item?.answers) ? [...new Set(item.answers.map((answer) => String(answer).trim()).filter(Boolean))] : [];
+    if (!question || question.length > 240 || answers.length < 1 || answers.length > 8 || answers.some((answer) => answer.length > 120)) {
+      throw new ApiError(400, 'invalid_trivia_questions');
+    }
+    return { id: `q${index + 1}`, question, answers };
+  });
+};
+
 export const createHandler = ({
   s3 = new S3Client({}),
   ssm = new SSMClient({}),
@@ -349,7 +357,9 @@ export const createHandler = ({
 
   const triviaQuestion = async (event) => {
     const captchaCookies = await requireCaptchaGate(event);
-    const question = TRIVIA_QUESTIONS[Math.floor(Math.random() * TRIVIA_QUESTIONS.length)];
+    const questions = (await eventSettings()).triviaQuestions || [];
+    if (!questions.length) throw new ApiError(503, 'trivia_unavailable');
+    const question = questions[Math.floor(Math.random() * questions.length)];
     const cookie = await makeSignedCookie('rsvp_trivia_challenge', {
       type: 'trivia-challenge', questionId: question.id,
     }, CAPTCHA_TTL_SECONDS);
@@ -361,7 +371,7 @@ export const createHandler = ({
     await requireCaptchaGate(event);
     const body = parseJsonBody(event);
     const challenge = verifyToken(body.challenge, await getSessionSecret(), now());
-    const question = TRIVIA_QUESTIONS.find((candidate) => candidate.id === challenge?.questionId);
+    const question = ((await eventSettings()).triviaQuestions || []).find((candidate) => candidate.id === challenge?.questionId);
     if (!question || challenge?.type !== 'trivia-challenge' || !triviaAnswerMatches(body.answer, question.answers)) {
       throw new ApiError(403, 'trivia_incorrect');
     }
@@ -507,9 +517,14 @@ export const createHandler = ({
     return result.Item || null;
   };
 
-  const rsvpConfig = async () => {
+  const eventSettings = async () => {
     const result = await ddb.send(new GetCommand({ TableName: env.RSVP_TABLE, Key: { pk: 'EVENT#DEFAULT', sk: 'SETTINGS' }, ConsistentRead: true }));
-    return { days: availabilityDays(env), restaurantChoices: result.Item?.restaurantChoices || [] };
+    return result.Item || {};
+  };
+
+  const rsvpConfig = async () => {
+    const settings = await eventSettings();
+    return { days: availabilityDays(env), restaurantChoices: settings.restaurantChoices || [] };
   };
 
   const requireAdmin = async (event) => {
@@ -566,7 +581,8 @@ export const createHandler = ({
 
   const adminSettings = async (event) => {
     await requireAdmin(event);
-    return jsonResponse(200, await rsvpConfig());
+    const settings = await eventSettings();
+    return jsonResponse(200, { ...(await rsvpConfig()), triviaQuestions: settings.triviaQuestions || [] });
   };
 
   const saveAdminSettings = async (event) => {
@@ -574,8 +590,9 @@ export const createHandler = ({
     const body = parseJsonBody(event);
     const restaurantChoices = Array.isArray(body.restaurantChoices) ? [...new Set(body.restaurantChoices.map((choice) => String(choice).trim().replace(/\s+/g, ' ')).filter(Boolean))] : null;
     if (!restaurantChoices || restaurantChoices.length > 20 || restaurantChoices.some((choice) => choice.length > 120)) throw new ApiError(400, 'invalid_restaurant_choices');
-    await ddb.send(new PutCommand({ TableName: env.RSVP_TABLE, Item: { pk: 'EVENT#DEFAULT', sk: 'SETTINGS', entityType: 'eventSettings', restaurantChoices, updatedAt: now() } }));
-    return jsonResponse(200, { saved: true, ...(await rsvpConfig()) });
+    const triviaQuestions = validateTriviaQuestions(body.triviaQuestions);
+    await ddb.send(new PutCommand({ TableName: env.RSVP_TABLE, Item: { pk: 'EVENT#DEFAULT', sk: 'SETTINGS', entityType: 'eventSettings', restaurantChoices, triviaQuestions, updatedAt: now() } }));
+    return jsonResponse(200, { saved: true, ...(await rsvpConfig()), triviaQuestions });
   };
 
   const adminGroups = async (event) => {

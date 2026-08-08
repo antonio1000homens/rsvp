@@ -37,7 +37,7 @@
         </section>
         <hr>
         <h2>Não encontro o meu nome</h2>
-        <p class="intro">Se calhar nao tenho o teu whatsapp, passa a validacao para seres adicionado</p>
+        <p class="intro">Se calhar nao tenho o teu whatsapp</p>
         <p id="registration-status" class="status" role="status" aria-live="polite"></p>
         <form id="new-contact-form" hidden>
           <label for="new-contact-name">Nome</label>
@@ -97,6 +97,9 @@
           <form id="admin-settings-form" class="rsvp-form">
             <label for="admin-restaurants">Restaurantes (um por linha)</label>
             <textarea id="admin-restaurants" name="restaurants" maxlength="2400" placeholder="Nome do restaurante"></textarea>
+            <label for="admin-trivia">Perguntas de validação</label>
+            <textarea id="admin-trivia" name="trivia" maxlength="6000" placeholder="Pergunta | resposta aceite, outra resposta"></textarea>
+            <p class="fine-print">Uma pergunta por linha. Separe a pergunta das respostas com <code>|</code>; respostas alternativas são separadas por vírgulas.</p>
             <button type="submit">Guardar opções de restaurante</button>
           </form>
           <p id="admin-groups" class="status"></p>
