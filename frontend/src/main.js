@@ -4,6 +4,8 @@ import { startAuthentication, startRegistration } from '@simplewebauthn/browser'
 const elements = {
   guestSection: document.querySelector('#guest-section'),
   guestList: document.querySelector('#guest-list'),
+  groupPicker: document.querySelector('#group-picker'),
+  groupSelect: document.querySelector('#group-select'),
   captcha: document.querySelector('#captcha'),
   captchaStatus: document.querySelector('#captcha-status'),
   triviaForm: document.querySelector('#trivia-form'),
@@ -33,6 +35,7 @@ const elements = {
 };
 
 let selectedGuest = null;
+let selectedGroup = '';
 let pollGeneration = 0;
 let triviaChallenge = '';
 let triviaToken = '';
@@ -178,7 +181,10 @@ const selectGuest = async (guest) => {
 const loadGuests = async (turnstileToken = '') => {
   elements.guestList.replaceChildren();
   try {
-    const { guests } = await api('/api/guests', turnstileToken
+    const params = new URLSearchParams();
+    if (selectedGroup) params.set('group', selectedGroup);
+    const path = `/api/guests${params.size ? `?${params}` : ''}`;
+    const { guests } = await api(path, turnstileToken
       ? { headers: { 'x-turnstile-token': turnstileToken } }
       : {});
     if (guests.length === 0) {
@@ -195,6 +201,28 @@ const loadGuests = async (turnstileToken = '') => {
     }
   } catch {
     elements.guestList.textContent = 'Não foi possível carregar os convites. Tente novamente mais tarde.';
+  }
+};
+
+const loadGroups = async () => {
+  try {
+    const { groups } = await api('/api/groups');
+    if (groups.length === 0) {
+      selectedGroup = '';
+      elements.groupPicker.hidden = true;
+      await loadGuests();
+      return;
+    }
+    elements.groupPicker.hidden = false;
+    elements.groupSelect.replaceChildren();
+    const placeholder = new Option('Escolha o seu grupo', '');
+    placeholder.disabled = true;
+    placeholder.selected = true;
+    elements.groupSelect.add(placeholder);
+    for (const group of groups) elements.groupSelect.add(new Option(group.name, group.id));
+    elements.guestList.textContent = 'Escolha o seu grupo para encontrar o seu nome.';
+  } catch {
+    elements.guestList.textContent = 'Não foi possível carregar os grupos. Tente novamente mais tarde.';
   }
 };
 
@@ -220,7 +248,7 @@ const answerTrivia = async (event) => {
     elements.triviaForm.hidden = true;
     elements.triviaStatus.textContent = 'Resposta correta.';
     elements.newContactForm.hidden = false;
-    await loadGuests();
+    await loadGroups();
   } catch (error) {
     elements.triviaStatus.textContent = error.code === 'trivia_incorrect'
       ? 'Resposta incorreta.'
@@ -283,9 +311,13 @@ elements.logout.addEventListener('click', async () => {
   elements.sessionSection.hidden = true;
   elements.guestSection.hidden = false;
   selectedGuest = null;
-  await loadGuests();
+  await loadGroups();
 });
 elements.triviaForm.addEventListener('submit', answerTrivia);
+elements.groupSelect.addEventListener('change', async () => {
+  selectedGroup = elements.groupSelect.value;
+  await loadGuests();
+});
 elements.newContactForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   const form = new FormData(elements.newContactForm);

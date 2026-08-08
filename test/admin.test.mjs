@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { addGuest } from '../scripts/guest-admin.mjs';
+import { addGroup, addGroupMember, addGuest } from '../scripts/guest-admin.mjs';
 
 const promptFor = (...answers) => ({
   async question() { return answers.shift(); },
@@ -40,4 +40,25 @@ test('guest add rejects an already enabled contact', async () => {
     /already enabled/,
   );
   assert.equal(transactionSent, false);
+});
+
+test('group commands create an independent group and a member link', async () => {
+  const calls = [];
+  let groupReads = 0;
+  const ddb = {
+    async send(command) {
+      calls.push(command);
+      if (command.constructor.name === 'GetCommand' && command.input.Key.pk === 'GROUP#friends') {
+        groupReads += 1;
+        return groupReads === 1 ? {} : { Item: { pk: 'GROUP#friends', sk: 'PROFILE', entityType: 'group', groupId: 'friends', name: 'Friends', enabled: true } };
+      }
+      if (command.constructor.name === 'ScanCommand') return { Items: [{ pk: 'GUEST#guest-one', sk: 'PROFILE', guestId: 'guest-one', nickname: 'Alice', enabled: true }] };
+      return {};
+    },
+  };
+  await addGroup({ ddb, prompt: promptFor('Friends') });
+  await addGroupMember({ ddb, prompt: promptFor('friends', 'Alice') });
+  const serialized = JSON.stringify(calls.map((call) => call.input));
+  assert.match(serialized, /GROUP#friends/);
+  assert.match(serialized, /MEMBER#guest-one/);
 });

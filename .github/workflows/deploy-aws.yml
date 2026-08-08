@@ -2,9 +2,25 @@ name: Validate and deploy RSVP to AWS
 
 on:
   pull_request:
+    paths:
+      - cloudformation/**
+      - lambda/**
+      - scripts/**
+      - src/**
+      - package.json
+      - package-lock.json
+      - .github/workflows/deploy-aws.yml
   push:
     branches:
       - master
+    paths:
+      - cloudformation/**
+      - lambda/**
+      - scripts/**
+      - src/**
+      - package.json
+      - package-lock.json
+      - .github/workflows/deploy-aws.yml
   workflow_dispatch:
 
 permissions: {}
@@ -32,6 +48,17 @@ jobs:
           npm run build
           npm test
           npm run check:shell
+      - name: Upload build artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 1
+      - name: Cache pip packages
+        uses: actions/cache@5a3ec84eff668545956fd18022155c47e93e2684 # v4
+        with:
+          path: ~/.cache/pip
+          key: cfn-lint-1.53.3
       - name: Validate CloudFormation templates
         run: |
           python3 -m pip install --disable-pip-version-check cfn-lint==1.53.3
@@ -56,11 +83,11 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-      - name: Use Node.js 24
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - name: Download build artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          node-version: '24'
-          cache: npm
+          name: dist
+          path: dist/
       - name: Configure short-lived AWS credentials
         uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7 # v6.0.0
         with:
