@@ -314,7 +314,7 @@ const loadTriviaQuestion = async (turnstileToken) => {
     const result = await api('/api/trivia/question', {
       headers: { 'x-turnstile-token': turnstileToken },
     });
-    if (!result.enabled) {
+    if (result.enabled === false) {
       await completeValidation();
       return;
     }
