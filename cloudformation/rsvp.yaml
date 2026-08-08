@@ -18,18 +18,12 @@ Parameters:
   FunctionName:
     Type: String
     Default: rsvp-app
-  ContactLookupIndexName:
-    Type: String
-    Default: contactLookup-index
   OriginSecretParameter:
     Type: String
     Default: /rsvp/origin-secret
   SessionSecretParameter:
     Type: String
     Default: /rsvp/session-secret
-  ContactPepperParameter:
-    Type: String
-    Default: /rsvp/contact-pepper
   WhatsappNumberParameter:
     Type: String
     Default: /rsvp/whatsapp-number
@@ -98,23 +92,11 @@ Resources:
           AttributeType: S
         - AttributeName: sk
           AttributeType: S
-        - AttributeName: contactLookup
-          AttributeType: S
       KeySchema:
         - AttributeName: pk
           KeyType: HASH
         - AttributeName: sk
           KeyType: RANGE
-      GlobalSecondaryIndexes:
-        - IndexName: !Ref ContactLookupIndexName
-          KeySchema:
-            - AttributeName: contactLookup
-              KeyType: HASH
-          Projection:
-            ProjectionType: ALL
-          ProvisionedThroughput:
-            ReadCapacityUnits: 1
-            WriteCapacityUnits: 1
       DeletionProtectionEnabled: true
       PointInTimeRecoverySpecification:
         PointInTimeRecoveryEnabled: false
@@ -175,7 +157,6 @@ Resources:
                   - dynamodb:UpdateItem
                 Resource:
                   - !GetAtt RsvpTable.Arn
-                  - !Sub ${RsvpTable.Arn}/index/${ContactLookupIndexName}
               - Sid: ReadRsvpSecrets
                 Effect: Allow
                 Action:
@@ -183,7 +164,6 @@ Resources:
                 Resource:
                   - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${OriginSecretParameter}
                   - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${SessionSecretParameter}
-                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${ContactPepperParameter}
                   - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${WhatsappNumberParameter}
                   - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${PhoneWebhookSecretParameter}
                   - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${ValidationSecretParameter}
@@ -216,10 +196,8 @@ Resources:
         Variables:
           SITE_BUCKET: !Ref SiteBucket
           RSVP_TABLE: !Ref RsvpTable
-          CONTACT_LOOKUP_INDEX: !Ref ContactLookupIndexName
           ORIGIN_SECRET_PARAMETER: !Ref OriginSecretParameter
           SESSION_SECRET_PARAMETER: !Ref SessionSecretParameter
-          CONTACT_PEPPER_PARAMETER: !Ref ContactPepperParameter
           WHATSAPP_NUMBER_PARAMETER: !Ref WhatsappNumberParameter
           PHONE_WEBHOOK_SECRET_PARAMETER: !Ref PhoneWebhookSecretParameter
           VALIDATION_SECRET_PARAMETER: !Ref ValidationSecretParameter
@@ -267,8 +245,6 @@ Outputs:
     Value: !Ref RsvpTable
   TableArn:
     Value: !GetAtt RsvpTable.Arn
-  ContactLookupIndexName:
-    Value: !Ref ContactLookupIndexName
   FunctionName:
     Value: !Ref RsvpFunction
   FunctionArn:

@@ -7,7 +7,7 @@ const promptFor = (...answers) => ({
   close() {},
 });
 
-test('guest add writes a contact HMAC and never sends the plaintext phone to DynamoDB', async () => {
+test('guest add writes a name-based unconfirmed guest without phone data', async () => {
   const calls = [];
   const ddb = {
     async send(command) {
@@ -16,23 +16,18 @@ test('guest add writes a contact HMAC and never sends the plaintext phone to Dyn
       return {};
     },
   };
-  const ssm = { send: async () => ({ Parameter: { Value: 'test-pepper' } }) };
-  await addGuest({ ddb, ssm, prompt: promptFor('Dinner Fox', '+351 912 345 678') });
+  await addGuest({ ddb, prompt: promptFor('Dinner Fox') });
   const transaction = calls.find((command) => command.constructor.name === 'TransactWriteCommand');
   assert.ok(transaction);
   const serialized = JSON.stringify(transaction.input);
-  assert.doesNotMatch(serialized, /351|912345678/);
+  assert.doesNotMatch(serialized, /phone|contactLookup|351|912345678/);
   assert.match(serialized, /Dinner Fox/);
-  assert.match(serialized, /contactLookup/);
 });
 
-test('guest add rejects a phone already assigned to an enabled profile', async () => {
+test('guest add rejects an already enabled contact', async () => {
   let transactionSent = false;
   const ddb = {
     async send(command) {
-      if (command.constructor.name === 'GetCommand' && command.input.Key.pk.startsWith('CONTACT#')) {
-        return { Item: { guestId: 'existing' } };
-      }
       if (command.constructor.name === 'GetCommand') {
         return { Item: { guestId: 'existing', enabled: true } };
       }
@@ -40,10 +35,9 @@ test('guest add rejects a phone already assigned to an enabled profile', async (
       return {};
     },
   };
-  const ssm = { send: async () => ({ Parameter: { Value: 'test-pepper' } }) };
   await assert.rejects(
-    addGuest({ ddb, ssm, prompt: promptFor('Duplicate', '+351912345678') }),
-    /already assigned/,
+    addGuest({ ddb, prompt: promptFor('Duplicate') }),
+    /already enabled/,
   );
   assert.equal(transactionSent, false);
 });

@@ -6,7 +6,6 @@ import {
   PutCommand,
   QueryCommand,
   TransactWriteCommand,
-  UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { GetParameterCommand, SSMClient } from '@aws-sdk/client-ssm';
@@ -17,7 +16,6 @@ import {
   verifyRegistrationResponse,
 } from '@simplewebauthn/server';
 import {
-  contactLookupFor,
   fromBase64Url,
   normalizeContactName,
   normalizeE164,
@@ -56,7 +54,6 @@ const WHATSAPP_TTL_SECONDS = 5 * 60;
 const WEBAUTHN_TTL_SECONDS = 5 * 60;
 const SESSION_TTL_SECONDS = 12 * 60 * 60;
 const CAPTCHA_TTL_SECONDS = 15 * 60;
-const LOGIN_MESSAGE = /^LOGIN ([A-Za-z0-9_-]{43}) ([A-Za-z0-9_-]{43})$/;
 const VALIDATION_MESSAGE = /^VALIDATION contact=([^&\s]+)&nonce=([A-Za-z0-9_-]{43})&sig=([A-Za-z0-9_-]{43})$/;
 const GUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const TRIVIA_QUESTIONS = Object.freeze([
@@ -255,7 +252,6 @@ export const createHandler = ({
 
   const getOriginSecret = () => getParameter(env.ORIGIN_SECRET_PARAMETER);
   const getSessionSecret = () => getParameter(env.SESSION_SECRET_PARAMETER);
-  const getContactPepper = () => getParameter(env.CONTACT_PEPPER_PARAMETER);
   const getPhoneWebhookSecret = () => getParameter(env.PHONE_WEBHOOK_SECRET_PARAMETER, true, false);
   const getValidationSecret = () => getParameter(env.VALIDATION_SECRET_PARAMETER, true, false);
   const getWhatsappNumber = () => getParameter(env.WHATSAPP_NUMBER_PARAMETER, false);
@@ -371,52 +367,6 @@ export const createHandler = ({
     }
   };
 
-  const getWhatsappChallenge = async (nonce) => {
-    const result = await ddb.send(new GetCommand({
-      TableName: env.RSVP_TABLE,
-      Key: { pk: `WHATSAPP#${tokenHash(nonce)}`, sk: 'CHALLENGE' },
-      ConsistentRead: true,
-    }));
-    return result.Item || null;
-  };
-
-  const startWhatsapp = async (guest) => {
-    let appNumber;
-    try {
-      appNumber = normalizeE164(await getWhatsappNumber());
-    } catch {
-      throw new ApiError(503, 'whatsapp_unavailable');
-    }
-    const nonce = toBase64Url(randomBytes(32));
-    const expiresAt = now() + WHATSAPP_TTL_SECONDS;
-    await ddb.send(new PutCommand({
-      TableName: env.RSVP_TABLE,
-      Item: {
-        pk: `WHATSAPP#${tokenHash(nonce)}`,
-        sk: 'CHALLENGE',
-        entityType: 'whatsappChallenge',
-        guestId: guest.guestId,
-        expectedContactLookup: guest.contactLookup,
-        status: 'pending',
-        expiresAt,
-        createdAt: now(),
-      },
-      ConditionExpression: 'attribute_not_exists(pk)',
-    }));
-
-    const message = `LOGIN ${guest.contactLookup} ${nonce}`;
-    const whatsappUrl = new URL(`https://wa.me/${appNumber.slice(1)}`);
-    whatsappUrl.searchParams.set('text', message);
-    const cookie = await makeSignedCookie('rsvp_bootstrap', {
-      type: 'whatsapp', guestId: guest.guestId, nonce,
-    }, WHATSAPP_TTL_SECONDS);
-    return jsonResponse(200, {
-      mode: 'whatsapp',
-      whatsappUrl: whatsappUrl.toString(),
-      expiresAt,
-    }, { cookies: [cookie, clearCookie('rsvp_webauthn')] });
-  };
-
   const createWebauthnFlow = async (guestId, purpose, options) => {
     const nonce = toBase64Url(randomBytes(32));
     const expiresAt = now() + WEBAUTHN_TTL_SECONDS;
@@ -456,19 +406,9 @@ export const createHandler = ({
     return { token, item };
   };
 
-  const bootstrapGuest = async (event) => {
-    const token = await readSignedCookie(event, 'rsvp_bootstrap');
-    if (token?.type !== 'whatsapp' || !GUEST_ID.test(String(token.guestId || ''))) return null;
-    const challenge = await getWhatsappChallenge(token.nonce);
-    if (!challenge || challenge.status !== 'approved' || challenge.expiresAt < now() || challenge.guestId !== token.guestId) return null;
-    return getGuest(token.guestId);
-  };
-
   const authorizedRegistrationGuest = async (event) => {
     const sessionGuest = await readSessionGuest(event);
     if (sessionGuest) return sessionGuest;
-    const guest = await bootstrapGuest(event);
-    if (guest) return guest;
     const token = await readSignedCookie(event, 'rsvp_registration');
     if (token?.type === 'registration') {
       const challenge = await getRegistrationChallenge(token.nonce);
@@ -502,10 +442,7 @@ export const createHandler = ({
       throw new ApiError(409, 'registration_required');
     }
     const credentials = await getCredentials(guest.guestId);
-    if (credentials.length === 0) {
-      if (guest.identityStatus === 'confirmed') throw new ApiError(409, 'passkey_required');
-      return startWhatsapp(guest);
-    }
+    if (credentials.length === 0) throw new ApiError(409, 'passkey_required');
 
     const options = await webauthn.generateAuthenticationOptions({
       rpID: env.WEBAUTHN_RP_ID,
@@ -517,24 +454,6 @@ export const createHandler = ({
     });
     const cookie = await createWebauthnFlow(guest.guestId, 'login', options);
     return jsonResponse(200, { mode: 'passkey', options }, { cookies: [cookie] });
-  };
-
-  const whatsappStart = async (event) => {
-    await requireCaptchaGate(event);
-    const { guestId: requestedGuestId } = parseJsonBody(event);
-    return startWhatsapp(await getGuest(validGuestId(requestedGuestId)));
-  };
-
-  const whatsappStatus = async (event) => {
-    const token = await readSignedCookie(event, 'rsvp_bootstrap');
-    if (token?.type !== 'whatsapp') {
-      return jsonResponse(200, { status: 'expired' }, { cookies: [clearCookie('rsvp_bootstrap')] });
-    }
-    const challenge = await getWhatsappChallenge(token.nonce);
-    if (!challenge || challenge.expiresAt < now()) {
-      return jsonResponse(200, { status: 'expired' }, { cookies: [clearCookie('rsvp_bootstrap')] });
-    }
-    return jsonResponse(200, { status: challenge.status === 'approved' ? 'approved' : 'pending' });
   };
 
   const getRegistrationChallenge = async (nonce) => {
@@ -595,55 +514,6 @@ export const createHandler = ({
     const challenge = await getRegistrationChallenge(token.nonce);
     if (!challenge || challenge.expiresAt < now()) return jsonResponse(200, { status: 'expired' }, { cookies: [clearCookie('rsvp_registration')] });
     return jsonResponse(200, { status: challenge.status === 'created' ? 'created' : 'pending' });
-  };
-
-  const approvePhoneWebhook = async (event) => {
-    const authorization = headerValue(event.headers, 'authorization');
-    const expectedSecret = await getPhoneWebhookSecret();
-    const providedSecret = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
-    if (!safeEqual(providedSecret, expectedSecret)) throw new ApiError(401, 'unauthorized');
-
-    const { sender, message } = parseJsonBody(event);
-    let normalizedSender;
-    try {
-      normalizedSender = normalizeE164(sender);
-    } catch {
-      throw new ApiError(400, 'invalid_sender');
-    }
-    const match = LOGIN_MESSAGE.exec(String(message || ''));
-    if (!match) throw new ApiError(400, 'invalid_login_message');
-    const [, claimedLookup, nonce] = match;
-    const pepper = await getContactPepper();
-    const senderLookup = contactLookupFor(normalizedSender, pepper);
-    if (!safeEqual(senderLookup, claimedLookup)) throw new ApiError(400, 'sender_mismatch');
-
-    const key = { pk: `WHATSAPP#${tokenHash(nonce)}`, sk: 'CHALLENGE' };
-    const existing = await ddb.send(new GetCommand({
-      TableName: env.RSVP_TABLE,
-      Key: key,
-      ConsistentRead: true,
-    }));
-    const challenge = existing.Item;
-    if (!challenge || !safeEqual(challenge.expectedContactLookup, senderLookup)) throw new ApiError(400, 'invalid_login_message');
-    if (challenge.expiresAt < now()) throw new ApiError(410, 'login_challenge_expired');
-    if (challenge.status !== 'pending') throw new ApiError(409, 'login_challenge_already_used');
-
-    try {
-      await ddb.send(new UpdateCommand({
-        TableName: env.RSVP_TABLE,
-        Key: key,
-        UpdateExpression: 'SET #status = :approved, approvedAt = :now',
-        ConditionExpression: '#status = :pending AND expiresAt >= :now AND expectedContactLookup = :lookup',
-        ExpressionAttributeNames: { '#status': 'status' },
-        ExpressionAttributeValues: {
-          ':approved': 'approved', ':pending': 'pending', ':now': now(), ':lookup': senderLookup,
-        },
-      }));
-    } catch (error) {
-      if (conditionalFailure(error)) throw new ApiError(409, 'login_challenge_already_used');
-      throw error;
-    }
-    return emptyResponse(204);
   };
 
   const registerPhoneWebhook = async (event) => {
@@ -868,9 +738,6 @@ export const createHandler = ({
       return response;
     }
     if (path === '/api/auth/start' && method === 'POST') return authStart(event);
-    if (path === '/api/auth/whatsapp/start' && method === 'POST') return whatsappStart(event);
-    if (path === '/api/auth/whatsapp/status' && method === 'GET') return whatsappStatus(event);
-    if (path === '/api/phone/approve' && method === 'POST') return approvePhoneWebhook(event);
     if (path === '/api/register/start' && method === 'POST') return startFriendRegistration(event);
     if (path === '/api/register/status' && method === 'GET') return registrationStatus(event);
     if (path === '/api/phone/register' && method === 'POST') return registerPhoneWebhook(event);

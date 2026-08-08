@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { contactLookupFor, tokenHash } from '../shared/identity.mjs';
+import { tokenHash } from '../shared/identity.mjs';
 import {
   contentTypeFor,
   createHandler,
@@ -14,7 +14,6 @@ const fixedNow = 2_000_000_000;
 const values = {
   '/rsvp/origin-secret': 'correct-secret',
   '/rsvp/session-secret': 'session-secret',
-  '/rsvp/contact-pepper': 'contact-pepper',
   '/rsvp/phone-webhook-secret': 'phone-webhook-secret',
   '/rsvp/validation-secret': 'validation-secret',
   '/rsvp/whatsapp-number': '+351910000000',
@@ -25,7 +24,6 @@ const values = {
 const env = {
   ORIGIN_SECRET_PARAMETER: '/rsvp/origin-secret',
   SESSION_SECRET_PARAMETER: '/rsvp/session-secret',
-  CONTACT_PEPPER_PARAMETER: '/rsvp/contact-pepper',
   PHONE_WEBHOOK_SECRET_PARAMETER: '/rsvp/phone-webhook-secret',
   VALIDATION_SECRET_PARAMETER: '/rsvp/validation-secret',
   WHATSAPP_NUMBER_PARAMETER: '/rsvp/whatsapp-number',
@@ -199,7 +197,6 @@ const guest = (overrides = {}) => ({
   entityType: 'guest',
   guestId: '123e4567-e89b-42d3-a456-426614174000',
   nickname: 'Toninho',
-  contactLookup: contactLookupFor('+351911111111', values['/rsvp/contact-pepper']),
   enabled: true,
   sessionVersion: 1,
   ...overrides,
@@ -254,7 +251,7 @@ test('public guest directory returns nicknames and IDs but no private profile da
   assert.equal(response.statusCode, 200);
   const serialized = response.body;
   assert.deepEqual(JSON.parse(serialized), { guests: [{ id: guest().guestId, nickname: 'Toninho', registrationRequired: false }] });
-  assert.doesNotMatch(serialized, /contactLookup|351911111111|contact-pepper/);
+  assert.doesNotMatch(serialized, /351911111111|contact-pepper/);
 });
 
 test('guest directory rejects missing CAPTCHA gate and accepts a valid Turnstile token', async () => {
@@ -269,119 +266,6 @@ test('guest directory rejects missing CAPTCHA gate and accepts a valid Turnstile
     ],
   }));
   assert.equal(accepted.statusCode, 200);
-});
-
-test('first login creates a five-minute WhatsApp URL without storing the raw nonce', async () => {
-  const profile = guest();
-  const { handler, ddb } = makeHandler({ items: [profile] });
-  const response = await handler(request('/api/auth/start', {
-    method: 'POST', body: { guestId: profile.guestId },
-  }));
-  assert.equal(response.statusCode, 200);
-  const body = JSON.parse(response.body);
-  assert.equal(body.mode, 'whatsapp');
-  assert.equal(body.expiresAt, fixedNow + 300);
-  const url = new URL(body.whatsappUrl);
-  assert.equal(url.hostname, 'wa.me');
-  assert.equal(url.pathname, '/351910000000');
-  assert.match(url.searchParams.get('text'), /^LOGIN [A-Za-z0-9_-]{43} [A-Za-z0-9_-]{43}$/);
-  assert.doesNotMatch(response.body, /351911111111/);
-  const nonce = url.searchParams.get('text').split(' ')[2];
-  assert.ok(ddb.get({ pk: `WHATSAPP#${tokenHash(nonce)}`, sk: 'CHALLENGE' }));
-  assert.doesNotMatch(JSON.stringify([...ddb.items.values()]), new RegExp(nonce));
-  assert.match(cookieFrom(response, 'rsvp_bootstrap'), /^rsvp_bootstrap=/);
-  assert.match(response.cookies.join(' '), /HttpOnly; Secure; SameSite=Lax/);
-});
-
-test('phone webhook requires its bearer secret, exact sender, and rejects replay', async () => {
-  const profile = guest();
-  const { handler } = makeHandler({ items: [profile] });
-  const started = await handler(request('/api/auth/start', {
-    method: 'POST', body: { guestId: profile.guestId },
-  }));
-  const message = new URL(JSON.parse(started.body).whatsappUrl).searchParams.get('text');
-
-  const unauthorized = await handler(request('/api/phone/approve', {
-    method: 'POST', body: { sender: '+351911111111', message },
-  }));
-  assert.equal(unauthorized.statusCode, 401);
-
-  const mismatch = await handler(request('/api/phone/approve', {
-    method: 'POST',
-    headers: { authorization: 'Bearer phone-webhook-secret' },
-    body: { sender: '+351922222222', message },
-  }));
-  assert.equal(mismatch.statusCode, 400);
-  assert.equal(JSON.parse(mismatch.body).error, 'sender_mismatch');
-
-  const approved = await handler(request('/api/phone/approve', {
-    method: 'POST',
-    headers: { authorization: 'Bearer phone-webhook-secret' },
-    body: { sender: '+351 911 111 111', message },
-  }));
-  assert.equal(approved.statusCode, 204);
-
-  const replay = await handler(request('/api/phone/approve', {
-    method: 'POST',
-    headers: { authorization: 'Bearer phone-webhook-secret' },
-    body: { sender: '+351911111111', message },
-  }));
-  assert.equal(replay.statusCode, 409);
-});
-
-test('approved WhatsApp flow registers a passkey, starts a session, and then uses passkey-first login', async () => {
-  const profile = guest();
-  const { handler, ddb } = makeHandler({ items: [profile] });
-  const started = await handler(request('/api/auth/start', {
-    method: 'POST', body: { guestId: profile.guestId },
-  }));
-  const bootstrapCookie = cookieFrom(started, 'rsvp_bootstrap');
-  const message = new URL(JSON.parse(started.body).whatsappUrl).searchParams.get('text');
-  await handler(request('/api/phone/approve', {
-    method: 'POST',
-    headers: { authorization: 'Bearer phone-webhook-secret' },
-    body: { sender: '+351911111111', message },
-  }));
-
-  const status = await handler(request('/api/auth/whatsapp/status', { cookies: [bootstrapCookie] }));
-  assert.deepEqual(JSON.parse(status.body), { status: 'approved' });
-
-  const options = await handler(request('/api/auth/passkeys/register/options', {
-    method: 'POST', cookies: [bootstrapCookie], body: {},
-  }));
-  assert.equal(options.statusCode, 200);
-  const webauthnCookie = cookieFrom(options, 'rsvp_webauthn');
-  const registered = await handler(request('/api/auth/passkeys/register/verify', {
-    method: 'POST',
-    cookies: [bootstrapCookie, webauthnCookie],
-    body: { credential: { id: 'credential-one', response: {} } },
-  }));
-  assert.equal(registered.statusCode, 200);
-  assert.ok(ddb.get({ pk: `GUEST#${profile.guestId}`, sk: 'CREDENTIAL#credential-one' }));
-  const sessionCookie = cookieFrom(registered, 'rsvp_session');
-
-  const session = await handler(request('/api/session', { cookies: [sessionCookie] }));
-  assert.deepEqual(JSON.parse(session.body), { authenticated: true, nickname: 'Toninho' });
-
-  const loginStart = await handler(request('/api/auth/start', {
-    method: 'POST', body: { guestId: profile.guestId },
-  }));
-  assert.equal(JSON.parse(loginStart.body).mode, 'passkey');
-  const loginCookie = cookieFrom(loginStart, 'rsvp_webauthn');
-  const login = await handler(request('/api/auth/passkeys/login/verify', {
-    method: 'POST',
-    cookies: [loginCookie],
-    body: { credential: { id: 'credential-one', response: {} } },
-  }));
-  assert.equal(login.statusCode, 200);
-  assert.equal(ddb.get({ pk: `GUEST#${profile.guestId}`, sk: 'CREDENTIAL#credential-one' }).counter, 1);
-
-  const replay = await handler(request('/api/auth/passkeys/login/verify', {
-    method: 'POST',
-    cookies: [loginCookie],
-    body: { credential: { id: 'credential-one', response: {} } },
-  }));
-  assert.equal(replay.statusCode, 410);
 });
 
 test('serves static files, SPA fallback, HEAD, and method constraints', async () => {

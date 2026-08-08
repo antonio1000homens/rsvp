@@ -1,4 +1,4 @@
-import { createHmac, createHash, timingSafeEqual } from 'node:crypto';
+import { createHash, timingSafeEqual } from 'node:crypto';
 
 const E164 = /^\+[1-9]\d{7,14}$/;
 
@@ -28,12 +28,6 @@ export const normalizePhoneLast4 = (value) => {
 
 export const toBase64Url = (value) => Buffer.from(value).toString('base64url');
 export const fromBase64Url = (value) => new Uint8Array(Buffer.from(value, 'base64url'));
-
-export const contactLookupFor = (phone, pepper) => {
-  const normalized = normalizeE164(phone);
-  if (!pepper) throw new Error('A contact pepper is required.');
-  return createHmac('sha256', pepper).update(normalized, 'utf8').digest('base64url');
-};
 
 export const tokenHash = (value) => createHash('sha256').update(String(value), 'utf8').digest('base64url');
 

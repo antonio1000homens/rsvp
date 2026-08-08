@@ -79,7 +79,7 @@ The site key is stored as `/rsvp/turnstile-site-key` (String); the server secret
 
 ## Guest whitelist
 
-Guest identity uses a public nickname and a phone number supplied interactively. Phone numbers must use E.164 format: a `+`, country code, and subscriber number with no local trunk prefix, for example `+351912345678`.
+Guest identity uses a public contact name.
 
 Add a guest:
 
@@ -88,7 +88,7 @@ aws sso login --profile windsor
 AWS_PROFILE=windsor npm run guest:add
 ```
 
-The command prompts for both values so the phone number is not placed in shell history. It stores the nickname and `HMAC-SHA-256(contact-pepper, E.164-number)`. It never stores or prints the plaintext phone number. Duplicate enabled phone numbers and duplicate normalized nicknames are rejected.
+The command prompts for the contact name and stores no phone number. Duplicate enabled contact names are rejected.
 
 List or disable enabled guests:
 
@@ -133,39 +133,13 @@ AWS_PROFILE=windsor npm run whatsapp:configure
 
 The command validates E.164 format and writes the public number to the `/rsvp/whatsapp-number` SSM String parameter. The backend removes `+` when constructing the `wa.me` URL.
 
-The bootstrap creates `/rsvp/phone-webhook-secret` as a random SSM SecureString. Copy it to the local clipboard without printing it:
+The bootstrap creates `/rsvp/phone-webhook-secret` as a random SSM SecureString for the registration callback. Copy it to the local clipboard without printing it:
 
 ```bash
 AWS_PROFILE=windsor npm run whatsapp:copy-secret
 ```
 
-Paste it into the phone automation, then clear the clipboard. Configure the automation's manual approval action to send:
-
-```text
-POST https://calcada2026.pt/api/phone/approve
-Authorization: Bearer <phone-webhook-secret>
-Content-Type: application/json
-```
-
-with this JSON body:
-
-```json
-{
-  "sender": "Ana Costa",
-  "message": "LOGIN <contact-HMAC> <one-time-nonce>"
-}
-```
-
-Requirements:
-
-- Trigger the request only after explicit manual approval on the phone.
-- Send the validated saved contact name, not an unverified name supplied by the guest.
-- Forward the complete received message without rewriting it.
-- Keep the bearer secret in the automation's private configuration.
-
-For registration callbacks, trigger only after the same explicit approval and contact match, and send the complete `VALIDATION ...` message unchanged to `/api/phone/register`. The backend returns `204` after creating the account; replayed, expired, altered, or mismatched challenges are rejected.
-
-The backend authenticates the automation, recomputes the sender HMAC, checks it against the selected guest and message, and consumes the five-minute nonce once. The waiting browser polls the backend and then offers passkey creation. Private passkey material never leaves the guest's authenticator; DynamoDB stores only public keys and counters.
+Paste it into the private Tasker configuration, then clear the clipboard. After explicitly approving the contact match, forward the complete `VALIDATION ...` message unchanged to `/api/phone/register` with the validated contact name as `sender`. The backend returns `204` after confirming the existing guest; replayed, expired, altered, or mismatched challenges are rejected. The waiting browser then offers passkey creation. Private passkey material never leaves the guest's authenticator; DynamoDB stores only public keys and counters.
 
 Rotate a compromised phone webhook secret with:
 
@@ -179,7 +153,6 @@ The SSM parameters have separate purposes:
 
 - `/rsvp/origin-secret` authenticates Cloudflare to the Lambda origin.
 - `/rsvp/session-secret` signs short-lived browser cookies.
-- `/rsvp/contact-pepper` protects phone-number lookup HMACs.
 - `/rsvp/phone-webhook-secret` authenticates the phone automation.
 - `/rsvp/validation-secret` signs and verifies registration WhatsApp payloads; copy this only to the registration automation that constructs or validates the message.
 - `/rsvp/whatsapp-number` is the public destination number used in the QR link.

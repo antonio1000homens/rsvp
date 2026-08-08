@@ -11,18 +11,14 @@ import {
   QueryCommand,
   TransactWriteCommand,
 } from '@aws-sdk/lib-dynamodb';
-import { GetParameterCommand, SSMClient } from '@aws-sdk/client-ssm';
-import { contactLookupFor, normalizeE164, normalizeNickname } from '../shared/identity.mjs';
+import { normalizeNickname } from '../shared/identity.mjs';
 
 const region = process.env.AWS_REGION || 'eu-west-2';
 const tableName = process.env.RSVP_TABLE || 'rsvp';
-const pepperParameter = process.env.CONTACT_PEPPER_PARAMETER || '/rsvp/contact-pepper';
-
 const defaultClients = () => ({
   ddb: DynamoDBDocumentClient.from(new DynamoDBClient({ region }), {
     marshallOptions: { removeUndefinedValues: true },
   }),
-  ssm: new SSMClient({ region }),
 });
 
 const directoryKey = (lookup) => ({ pk: 'DIRECTORY', sk: `NICKNAME#${lookup}` });
@@ -42,37 +38,27 @@ const sendWithRetry = async (client, command) => {
 
 const promptInterface = () => createInterface({ input: process.stdin, output: process.stdout });
 
-const readPepper = async (ssm) => {
-  const result = await ssm.send(new GetParameterCommand({ Name: pepperParameter, WithDecryption: true }));
-  const value = result.Parameter?.Value;
-  if (!value) throw new Error(`Missing SecureString parameter ${pepperParameter}.`);
-  return value;
-};
-
-const findByContact = async (ddb, contactLookup) => {
-  const lookup = await ddb.send(new GetCommand({
-    TableName: tableName,
-    Key: { pk: `CONTACT#${contactLookup}`, sk: 'LOOKUP' },
-    ConsistentRead: true,
-  }));
-  if (!lookup.Item?.guestId) return null;
+const findByNickname = async (ddb, nickname) => {
   const profile = await ddb.send(new GetCommand({
     TableName: tableName,
-    Key: { pk: `GUEST#${lookup.Item.guestId}`, sk: 'PROFILE' },
+    Key: directoryKey(nickname.lookup),
     ConsistentRead: true,
   }));
-  return profile.Item || null;
+  if (!profile.Item?.guestId) return null;
+  const guest = await ddb.send(new GetCommand({
+    TableName: tableName,
+    Key: { pk: `GUEST#${profile.Item.guestId}`, sk: 'PROFILE' },
+    ConsistentRead: true,
+  }));
+  return guest.Item || null;
 };
 
-export const addGuest = async ({ ddb, ssm, prompt = promptInterface() }) => {
+export const addGuest = async ({ ddb, prompt = promptInterface() }) => {
   try {
     const nicknameInput = await prompt.question('Public nickname: ');
-    const phoneInput = await prompt.question('Phone number in E.164 format: ');
     const nickname = normalizeNickname(nicknameInput);
-    const phone = normalizeE164(phoneInput);
-    const contactLookup = contactLookupFor(phone, await readPepper(ssm));
-    const existingContact = await findByContact(ddb, contactLookup);
-    if (existingContact?.enabled) throw new Error('That phone number is already assigned to an enabled guest.');
+    const existingContact = await findByNickname(ddb, nickname);
+    if (existingContact?.enabled) throw new Error('That contact is already enabled.');
 
     const guestId = existingContact?.guestId || randomUUID();
     const createdAt = Math.floor(Date.now() / 1000);
@@ -90,7 +76,6 @@ export const addGuest = async ({ ddb, ssm, prompt = promptInterface() }) => {
       entityType: 'guest',
       guestId,
       nickname: nickname.display,
-      contactLookup,
       identityStatus: existingContact?.identityStatus || 'unconfirmed',
       enabled: true,
       sessionVersion: Number(existingContact?.sessionVersion || 1),
@@ -104,12 +89,11 @@ export const addGuest = async ({ ddb, ssm, prompt = promptInterface() }) => {
             TableName: tableName,
             Key: { pk: profileItem.pk, sk: profileItem.sk },
             UpdateExpression: 'SET nickname = :nickname, enabled = :enabled, updatedAt = :now',
-            ConditionExpression: 'contactLookup = :lookup AND enabled = :disabled',
+            ConditionExpression: 'enabled = :disabled',
             ExpressionAttributeValues: {
               ':nickname': nickname.display,
               ':enabled': true,
               ':disabled': false,
-              ':lookup': contactLookup,
               ':now': createdAt,
             },
           },
@@ -132,22 +116,8 @@ export const addGuest = async ({ ddb, ssm, prompt = promptInterface() }) => {
           },
         },
       ];
-    if (!existingContact) {
-      writes.push({
-        Put: {
-          TableName: tableName,
-          Item: {
-            pk: `CONTACT#${contactLookup}`,
-            sk: 'LOOKUP',
-            entityType: 'contactLookup',
-            guestId,
-          },
-          ConditionExpression: 'attribute_not_exists(pk)',
-        },
-      });
-    }
     await ddb.send(new TransactWriteCommand({ TransactItems: writes }));
-    process.stdout.write(`Whitelisted ${nickname.display}. No plaintext phone number was stored.\n`);
+    process.stdout.write(`Whitelisted ${nickname.display}.\n`);
   } finally {
     prompt.close?.();
   }
@@ -205,7 +175,7 @@ export const disableGuest = async ({ ddb, prompt = promptInterface() }) => {
   }
 };
 
-export const seedContacts = async ({ ddb, ssm, file }) => {
+export const seedContacts = async ({ ddb, file }) => {
   const contents = await readFile(file, 'utf8');
   const contacts = contents.split(/\r?\n/).map((line, index) => {
     if (!line.trim()) return null;
@@ -214,18 +184,14 @@ export const seedContacts = async ({ ddb, ssm, file }) => {
     if (separator < 1) throw new Error(`Invalid contact on line ${index + 1}.`);
     return {
       name: cleanLine.slice(0, separator).trim(),
-      phone: normalizeE164(cleanLine.slice(separator + 1).trim()),
     };
   }).filter(Boolean);
-  const pepper = await readPepper(ssm);
   const results = [];
   for (const contact of contacts) {
-    const nickname = normalizeNickname(`${contact.name} — Por confirmar`);
-    const contactLookup = contactLookupFor(contact.phone, pepper);
-    const existingContact = await findByContact(ddb, contactLookup);
+    const nickname = normalizeNickname(contact.name);
+    const existingContact = await findByNickname(ddb, nickname);
     if (existingContact) {
       if (existingContact.identityStatus !== 'confirmed') {
-        const oldDisplay = existingContact.nickname.replace(/ — Por confirmar$/, '');
         const oldDirectory = directoryKey(normalizeNickname(existingContact.nickname).lookup);
         const newNickname = normalizeNickname(contact.name);
         const newDirectory = { ...directoryKey(newNickname.lookup), entityType: 'directory', guestId: existingContact.guestId, nickname: newNickname.display, identityStatus: 'unconfirmed' };
@@ -249,12 +215,11 @@ export const seedContacts = async ({ ddb, ssm, file }) => {
     const createdAt = Math.floor(Date.now() / 1000);
     const profileItem = {
       pk: `GUEST#${directory.guestId}`, sk: 'PROFILE', entityType: 'guest', guestId: directory.guestId,
-      nickname: contact.name, contactLookup, identityStatus: 'unconfirmed', enabled: true, sessionVersion: 1, createdAt,
+      nickname: contact.name, identityStatus: 'unconfirmed', enabled: true, sessionVersion: 1, createdAt,
     };
     await sendWithRetry(ddb, new TransactWriteCommand({ TransactItems: [
       { Put: { TableName: tableName, Item: profileItem, ConditionExpression: 'attribute_not_exists(pk)' } },
       { Put: { TableName: tableName, Item: directory, ConditionExpression: 'attribute_not_exists(pk)' } },
-      { Put: { TableName: tableName, Item: { pk: `CONTACT#${contactLookup}`, sk: 'LOOKUP', entityType: 'contactLookup', guestId: directory.guestId }, ConditionExpression: 'attribute_not_exists(pk)' } },
     ] }));
     results.push(`${nickname.display}: seeded`);
   }
