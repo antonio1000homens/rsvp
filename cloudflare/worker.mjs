@@ -66,10 +66,20 @@ export const proxyRequest = async (request, env, fetchImpl = fetch) => {
 
   try {
     const originResponse = await fetchImpl(origin, init);
+    const responseHeaders = secureResponseHeaders(originResponse.headers);
+    // Lambda Function URLs can return several independent Set-Cookie headers.
+    // Rebuilding Headers can otherwise collapse them into one invalid cookie.
+    const setCookies = typeof originResponse.headers.getSetCookie === 'function'
+      ? originResponse.headers.getSetCookie()
+      : [];
+    if (setCookies.length) {
+      responseHeaders.delete('set-cookie');
+      for (const cookie of setCookies) responseHeaders.append('set-cookie', cookie);
+    }
     return new Response(originResponse.body, {
       status: originResponse.status,
       statusText: originResponse.statusText,
-      headers: secureResponseHeaders(originResponse.headers),
+      headers: responseHeaders,
     });
   } catch {
     return errorResponse();
