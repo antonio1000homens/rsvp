@@ -1,0 +1,4 @@
+# W3037: cfn-lint's bundled IAM action list doesn't include dynamodb:TransactWriteItems
+# This is a false positive — the action is valid. Remove once cfn-lint updates its schema.
+ignore_checks:
+  - W3037
