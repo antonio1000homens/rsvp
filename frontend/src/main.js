@@ -36,6 +36,7 @@ const elements = {
   adminSettingsForm: document.querySelector('#admin-settings-form'),
   adminRestaurants: document.querySelector('#admin-restaurants'),
   adminTrivia: document.querySelector('#admin-trivia'),
+  adminUseTrivia: document.querySelector('#admin-use-trivia'),
   adminGroups: document.querySelector('#admin-groups'),
   rsvpForm: document.querySelector('#rsvp-form'),
   availabilityDays: document.querySelector('#availability-days'),
@@ -121,6 +122,7 @@ const loadAdmin = async () => {
     elements.adminDates.textContent = settings.days.join(' · ');
     elements.adminRestaurants.value = settings.restaurantChoices.join('\n');
     elements.adminTrivia.value = settings.triviaQuestions.map((item) => `${item.question} | ${item.answers.join(', ')}`).join('\n');
+    elements.adminUseTrivia.checked = settings.useTrivia;
     const { groups } = await api('/api/admin/groups');
     elements.adminGroups.textContent = groups.length ? groups.map((group) => `${group.name}: ${group.members} membro(s)`).join(' · ') : 'Ainda não existem grupos.';
   } catch (error) {
@@ -312,13 +314,25 @@ const loadTriviaQuestion = async (turnstileToken) => {
     const result = await api('/api/trivia/question', {
       headers: { 'x-turnstile-token': turnstileToken },
     });
+    if (!result.enabled) {
+      await completeValidation();
+      return;
+    }
     triviaChallenge = result.challenge;
     elements.triviaQuestion.textContent = result.question;
     elements.triviaForm.hidden = false;
     elements.triviaAnswer.focus();
   } catch {
-    elements.triviaStatus.textContent = 'Não foi possível carregar a pergunta. Tente novamente mais tarde.';
+    elements.triviaStatus.textContent = 'Não foi possível carregar a pergunta; pode continuar para a lista.';
+    await completeValidation();
   }
+};
+
+const completeValidation = async () => {
+  elements.triviaForm.hidden = true;
+  elements.validatedContent.hidden = false;
+  elements.newContactForm.hidden = false;
+  await Promise.all([loadGroups(), loadRsvpSummary()]);
 };
 
 const answerTrivia = async (event) => {
@@ -326,11 +340,8 @@ const answerTrivia = async (event) => {
   elements.triviaStatus.textContent = 'A validar a resposta…';
   try {
     await post('/api/trivia/answer', { challenge: triviaChallenge, answer: elements.triviaAnswer.value });
-    elements.triviaForm.hidden = true;
     elements.triviaStatus.textContent = 'Resposta correta.';
-    elements.validatedContent.hidden = false;
-    elements.newContactForm.hidden = false;
-    await Promise.all([loadGroups(), loadRsvpSummary()]);
+    await completeValidation();
   } catch (error) {
     elements.triviaStatus.textContent = error.code === 'trivia_incorrect'
       ? 'Resposta incorreta.'
@@ -427,7 +438,7 @@ elements.adminSettingsForm.addEventListener('submit', async (event) => {
       if (separator < 1) throw new Error('invalid_trivia_questions');
       return { question: line.slice(0, separator).trim(), answers: line.slice(separator + 1).split(',').map((answer) => answer.trim()).filter(Boolean) };
     });
-    await put('/api/admin/settings', { restaurantChoices, triviaQuestions });
+    await put('/api/admin/settings', { restaurantChoices, triviaQuestions, useTrivia: elements.adminUseTrivia.checked });
     elements.sessionStatus.textContent = 'Opções do evento guardadas.';
     await loadRsvpForm();
   } catch { elements.sessionStatus.textContent = 'Não foi possível guardar as opções do evento. Confirma o formato das perguntas.'; }

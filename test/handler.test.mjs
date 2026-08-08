@@ -307,12 +307,13 @@ test('only an admin session can manage restaurant choices', async () => {
   assert.equal(saved.statusCode, 200);
   assert.deepEqual(JSON.parse(saved.body).restaurantChoices, ['A Tasca', 'O Pátio']);
   assert.equal(JSON.parse(saved.body).triviaQuestions[0].question, 'Quem organiza?');
+  assert.equal(JSON.parse(saved.body).useTrivia, true);
   const nonAdmin = await makeHandler({ items: [guest()] }).handler(request('/api/admin/settings', { cookies: [`rsvp_session=${session}`] }));
   assert.equal(nonAdmin.statusCode, 403);
 });
 
 test('trivia is served from event settings, not Lambda constants', async () => {
-  const settings = { pk: 'EVENT#DEFAULT', sk: 'SETTINGS', entityType: 'eventSettings', triviaQuestions: [{ id: 'q1', question: 'Pergunta configurada?', answers: ['sim'] }] };
+  const settings = { pk: 'EVENT#DEFAULT', sk: 'SETTINGS', entityType: 'eventSettings', useTrivia: true, triviaQuestions: [{ id: 'q1', question: 'Pergunta configurada?', answers: ['sim'] }] };
   const { handler } = makeHandler({ items: [settings] });
   const question = await handler(request('/api/trivia/question'));
   const payload = JSON.parse(question.body);
