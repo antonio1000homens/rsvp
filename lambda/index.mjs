@@ -53,11 +53,17 @@ const CONTENT_TYPES = Object.freeze({
 const MAX_JSON_BYTES = 64 * 1024;
 const WHATSAPP_TTL_SECONDS = 5 * 60;
 const WEBAUTHN_TTL_SECONDS = 5 * 60;
-const SESSION_TTL_SECONDS = 24 * 60 * 60;
+const SESSION_TTL_SECONDS = 12 * 60 * 60;
 const CAPTCHA_TTL_SECONDS = 15 * 60;
 const VALIDATION_MESSAGE = /^VALIDATION contact=([^&\s]+)&nonce=([A-Za-z0-9_-]{43})&sig=([A-Za-z0-9_-]{43})$/;
 const GUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const GROUP_ID = /^[a-z0-9][a-z0-9-]{0,62}$/;
+const TRIVIA_QUESTIONS = Object.freeze([
+  { id: 'policia', question: 'Quem é o polícia?', answers: ['rui', 'checa'] },
+  { id: 'vacas', question: 'Um dos irmãos Vacas', answers: ['rui', 'goncalo'] },
+  { id: 'cafe', question: 'cafe da rua', answers: ['popicas'] },
+  { id: 'charlie', question: 'charlie...', answers: ['shots'] },
+  { id: 'cheiro', question: '', answers: ['lixeira'] },
+]);
 const CONTACT_REQUEST_NUMBER = '+447810354233';
 
 const jsonResponse = (statusCode, payload, { headers = {}, cookies = [] } = {}) => ({
@@ -187,31 +193,6 @@ const validGuestId = (value) => {
   return guestId;
 };
 
-const validGroupId = (value) => {
-  const groupId = String(value || '');
-  if (!GROUP_ID.test(groupId)) throw new ApiError(400, 'invalid_group');
-  return groupId;
-};
-
-const availabilityDays = (env) => {
-  const days = String(env.RSVP_DAYS || '19 December 2026,20 December 2026,21 December 2026,22 December 2026,23 December 2026').split(',').map((day) => day.trim()).filter(Boolean);
-  if (days.length !== 5 || new Set(days).size !== 5 || days.some((day) => day.length > 80)) throw new ApiError(503, 'rsvp_configuration_unavailable');
-  return days;
-};
-
-const responseChoices = (body, days) => {
-  const availableDays = Array.isArray(body.availableDays) ? [...new Set(body.availableDays.map(String))] : [];
-  const mealTypes = Array.isArray(body.mealTypes) ? [...new Set(body.mealTypes.map(String))] : [];
-  const guestCount = Number(body.guestCount);
-  const dietaryRestrictions = String(body.dietaryRestrictions || '').trim();
-  const restaurantChoice = String(body.restaurantChoice || '').trim().replace(/\s+/g, ' ');
-  if (!availableDays.length || !availableDays.every((day) => days.includes(day))) throw new ApiError(400, 'invalid_availability');
-  if (!mealTypes.length || !mealTypes.every((type) => ['lunch', 'dinner', 'drinks'].includes(type))) throw new ApiError(400, 'invalid_meal_types');
-  if (!Number.isInteger(guestCount) || guestCount < 1 || guestCount > 12) throw new ApiError(400, 'invalid_guest_count');
-  if (dietaryRestrictions.length > 500 || restaurantChoice.length < 2 || restaurantChoice.length > 120) throw new ApiError(400, 'invalid_preferences');
-  return { availableDays, mealTypes, guestCount, dietaryRestrictions, restaurantChoice };
-};
-
 const conditionalFailure = (error) =>
   error?.name === 'ConditionalCheckFailedException' || error?.name === 'TransactionCanceledException';
 
@@ -221,18 +202,6 @@ const normalizeTriviaAnswer = (value) => String(value || '').normalize('NFKD')
 export const triviaAnswerMatches = (answer, acceptedAnswers) => {
   const normalized = normalizeTriviaAnswer(answer);
   return acceptedAnswers.some((accepted) => normalized.includes(normalizeTriviaAnswer(accepted)));
-};
-
-const validateTriviaQuestions = (raw) => {
-  if (!Array.isArray(raw) || raw.length > 20) throw new ApiError(400, 'invalid_trivia_questions');
-  return raw.map((item, index) => {
-    const question = String(item?.question || '').trim().replace(/\s+/g, ' ');
-    const answers = Array.isArray(item?.answers) ? [...new Set(item.answers.map((answer) => String(answer).trim()).filter(Boolean))] : [];
-    if (!question || question.length > 240 || answers.length < 1 || answers.length > 8 || answers.some((answer) => answer.length > 120)) {
-      throw new ApiError(400, 'invalid_trivia_questions');
-    }
-    return { id: `q${index + 1}`, question, answers };
-  });
 };
 
 export const createHandler = ({
@@ -352,17 +321,12 @@ export const createHandler = ({
 
   const requireTriviaGate = async (event) => {
     if (!(await readCaptchaGate(event))) throw new ApiError(403, 'captcha_required');
-    const settings = await eventSettings();
-    if (!settings.useTrivia || !(settings.triviaQuestions || []).length) return;
     if (!(await readTriviaGate(event))) throw new ApiError(403, 'trivia_required');
   };
 
   const triviaQuestion = async (event) => {
     const captchaCookies = await requireCaptchaGate(event);
-    const settings = await eventSettings();
-    const questions = settings.triviaQuestions || [];
-    if (!settings.useTrivia || !questions.length) return jsonResponse(200, { enabled: false }, { cookies: captchaCookies });
-    const question = questions[Math.floor(Math.random() * questions.length)];
+    const question = TRIVIA_QUESTIONS[Math.floor(Math.random() * TRIVIA_QUESTIONS.length)];
     const cookie = await makeSignedCookie('rsvp_trivia_challenge', {
       type: 'trivia-challenge', questionId: question.id,
     }, CAPTCHA_TTL_SECONDS);
@@ -374,7 +338,7 @@ export const createHandler = ({
     await requireCaptchaGate(event);
     const body = parseJsonBody(event);
     const challenge = verifyToken(body.challenge, await getSessionSecret(), now());
-    const question = ((await eventSettings()).triviaQuestions || []).find((candidate) => candidate.id === challenge?.questionId);
+    const question = TRIVIA_QUESTIONS.find((candidate) => candidate.id === challenge?.questionId);
     if (!question || challenge?.type !== 'trivia-challenge' || !triviaAnswerMatches(body.answer, question.answers)) {
       throw new ApiError(403, 'trivia_incorrect');
     }
@@ -390,13 +354,8 @@ export const createHandler = ({
     const secret = await getTurnstileSecret();
     if (!secret) throw new ApiError(503, 'captcha_unavailable');
     const result = await turnstileValidate(token, secret, headerValue(event.headers, 'cf-connecting-ip'));
-    const allowedTurnstileHosts = new Set([env.TURNSTILE_HOSTNAME || 'calcada2026.pt', 'calcada2026.pt', 'www.calcada2026.pt']);
     if (!result?.success || (result.action && result.action !== 'guest-directory') ||
-        (result.hostname && !allowedTurnstileHosts.has(result.hostname))) {
-      console.warn('Turnstile validation rejected', {
-        success: Boolean(result?.success), action: result?.action || '', hostname: result?.hostname || '',
-        errorCodes: Array.isArray(result?.['error-codes']) ? result['error-codes'] : [],
-      });
+        (result.hostname && result.hostname !== (env.TURNSTILE_HOSTNAME || 'calcada2026.pt'))) {
       throw new ApiError(403, 'captcha_failed');
     }
     return [await makeSignedCookie('rsvp_captcha', { type: 'captcha' }, CAPTCHA_TTL_SECONDS)];
@@ -463,50 +422,14 @@ export const createHandler = ({
     throw new ApiError(401, 'whatsapp_approval_required');
   };
 
-  const getGroup = async (groupId) => {
-    const result = await ddb.send(new GetCommand({
-      TableName: env.RSVP_TABLE,
-      Key: { pk: `GROUP#${groupId}`, sk: 'PROFILE' },
-      ConsistentRead: true,
-    }));
-    if (!result.Item?.enabled || result.Item.entityType !== 'group') throw new ApiError(404, 'group_not_found');
-    return result.Item;
-  };
-
-  const listGroups = async () => {
+  const listGuests = async () => {
     const result = await ddb.send(new ScanCommand({
       TableName: env.RSVP_TABLE,
-      FilterExpression: 'sk = :profile AND entityType = :group AND enabled = :enabled',
-      ExpressionAttributeValues: { ':profile': 'PROFILE', ':group': 'group', ':enabled': true },
-      ExpressionAttributeNames: { '#name': 'name' },
-      ProjectionExpression: 'groupId, #name',
+      FilterExpression: 'sk = :profile AND entityType = :guest AND enabled = :enabled',
+      ExpressionAttributeValues: { ':profile': 'PROFILE', ':guest': 'guest', ':enabled': true },
+      ProjectionExpression: 'guestId, nickname, identityStatus',
     }));
-    const groups = (result.Items || []).map(({ groupId, name }) => ({ id: groupId, name }))
-      .sort((left, right) => left.name.localeCompare(right.name));
-    return jsonResponse(200, { groups });
-  };
-
-  const listGuests = async (groupId = '') => {
-    let profiles;
-    if (groupId) {
-      await getGroup(validGroupId(groupId));
-      const result = await ddb.send(new QueryCommand({
-        TableName: env.RSVP_TABLE,
-        KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
-        ExpressionAttributeValues: { ':pk': `GROUP#${groupId}`, ':prefix': 'MEMBER#' },
-        ConsistentRead: true,
-      }));
-      profiles = await Promise.all((result.Items || []).map(({ guestId }) => getGuest(guestId).catch(() => null)));
-    } else {
-      const result = await ddb.send(new ScanCommand({
-        TableName: env.RSVP_TABLE,
-        FilterExpression: 'sk = :profile AND entityType = :guest AND enabled = :enabled',
-        ExpressionAttributeValues: { ':profile': 'PROFILE', ':guest': 'guest', ':enabled': true },
-        ProjectionExpression: 'guestId, nickname, identityStatus',
-      }));
-      profiles = result.Items || [];
-    }
-    const guests = profiles.filter(Boolean)
+    const guests = (result.Items || [])
       .filter(({ identityStatus }) => identityStatus !== 'to_add')
       .map(({ guestId, nickname, identityStatus }) => ({
         id: guestId,
@@ -515,107 +438,6 @@ export const createHandler = ({
       }))
       .sort((left, right) => left.nickname.localeCompare(right.nickname));
     return jsonResponse(200, { guests });
-  };
-
-  const rsvpForGuest = async (guestId) => {
-    const result = await ddb.send(new GetCommand({
-      TableName: env.RSVP_TABLE,
-      Key: { pk: `RSVP#${guestId}`, sk: 'RESPONSE' },
-      ConsistentRead: true,
-    }));
-    return result.Item || null;
-  };
-
-  const eventSettings = async () => {
-    const result = await ddb.send(new GetCommand({ TableName: env.RSVP_TABLE, Key: { pk: 'EVENT#DEFAULT', sk: 'SETTINGS' }, ConsistentRead: true }));
-    return result.Item || {};
-  };
-
-  const rsvpConfig = async () => {
-    const settings = await eventSettings();
-    return { days: availabilityDays(env), restaurantChoices: settings.restaurantChoices || [] };
-  };
-
-  const requireAdmin = async (event) => {
-    const guest = await readSessionGuest(event);
-    if (!guest) throw new ApiError(401, 'authentication_required');
-    if (!guest.isAdmin) throw new ApiError(403, 'admin_required');
-    return guest;
-  };
-
-  const getRsvp = async (event) => {
-    const guest = await readSessionGuest(event);
-    if (!guest) throw new ApiError(401, 'authentication_required');
-    const response = await rsvpForGuest(guest.guestId);
-    return jsonResponse(200, { ...(await rsvpConfig()), response: response ? {
-      availableDays: response.availableDays, mealTypes: response.mealTypes, guestCount: response.guestCount,
-      dietaryRestrictions: response.dietaryRestrictions, restaurantChoice: response.restaurantChoice,
-    } : null });
-  };
-
-  const saveRsvp = async (event) => {
-    const guest = await readSessionGuest(event);
-    if (!guest) throw new ApiError(401, 'authentication_required');
-    const config = await rsvpConfig();
-    const choices = responseChoices(parseJsonBody(event), config.days);
-    if (config.restaurantChoices.length && !config.restaurantChoices.includes(choices.restaurantChoice)) throw new ApiError(400, 'invalid_restaurant_choice');
-    await ddb.send(new PutCommand({
-      TableName: env.RSVP_TABLE,
-      Item: { pk: `RSVP#${guest.guestId}`, sk: 'RESPONSE', entityType: 'rsvpResponse', guestId: guest.guestId, ...choices, updatedAt: now() },
-    }));
-    return jsonResponse(200, { saved: true, ...config, response: choices });
-  };
-
-  const rsvpSummary = async () => {
-    const { days } = await rsvpConfig();
-    const result = await ddb.send(new ScanCommand({
-      TableName: env.RSVP_TABLE,
-      FilterExpression: 'entityType = :response',
-      ExpressionAttributeValues: { ':response': 'rsvpResponse' },
-      ProjectionExpression: 'availableDays, mealTypes, guestCount, restaurantChoice',
-    }));
-    const responses = result.Items || [];
-    const byDay = Object.fromEntries(days.map((day) => [day, 0]));
-    const byMeal = { lunch: 0, dinner: 0, drinks: 0 };
-    const restaurants = {};
-    let guests = 0;
-    for (const response of responses) {
-      guests += Number(response.guestCount || 0);
-      for (const day of response.availableDays || []) if (day in byDay) byDay[day] += Number(response.guestCount || 0);
-      for (const meal of response.mealTypes || []) if (meal in byMeal) byMeal[meal] += Number(response.guestCount || 0);
-      if (response.restaurantChoice) restaurants[response.restaurantChoice] = (restaurants[response.restaurantChoice] || 0) + Number(response.guestCount || 0);
-    }
-    return jsonResponse(200, { responses: responses.length, guests, byDay, byMeal, restaurants });
-  };
-
-  const adminSettings = async (event) => {
-    await requireAdmin(event);
-    const settings = await eventSettings();
-    return jsonResponse(200, { ...(await rsvpConfig()), triviaQuestions: settings.triviaQuestions || [], useTrivia: Boolean(settings.useTrivia) });
-  };
-
-  const saveAdminSettings = async (event) => {
-    await requireAdmin(event);
-    const body = parseJsonBody(event);
-    const restaurantChoices = Array.isArray(body.restaurantChoices) ? [...new Set(body.restaurantChoices.map((choice) => String(choice).trim().replace(/\s+/g, ' ')).filter(Boolean))] : null;
-    if (!restaurantChoices || restaurantChoices.length > 20 || restaurantChoices.some((choice) => choice.length > 120)) throw new ApiError(400, 'invalid_restaurant_choices');
-    const triviaQuestions = validateTriviaQuestions(body.triviaQuestions);
-    const existing = await eventSettings();
-    const useTrivia = !(existing.triviaQuestions || []).length && triviaQuestions.length
-      ? true
-      : Boolean(body.useTrivia) && triviaQuestions.length > 0;
-    await ddb.send(new PutCommand({ TableName: env.RSVP_TABLE, Item: { pk: 'EVENT#DEFAULT', sk: 'SETTINGS', entityType: 'eventSettings', restaurantChoices, triviaQuestions, useTrivia, updatedAt: now() } }));
-    return jsonResponse(200, { saved: true, ...(await rsvpConfig()), triviaQuestions, useTrivia });
-  };
-
-  const adminGroups = async (event) => {
-    await requireAdmin(event);
-    const groups = JSON.parse((await listGroups()).body).groups;
-    const withCounts = await Promise.all(groups.map(async (group) => {
-      const members = await ddb.send(new QueryCommand({ TableName: env.RSVP_TABLE, KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)', ExpressionAttributeValues: { ':pk': `GROUP#${group.id}`, ':prefix': 'MEMBER#' }, Select: 'COUNT' }));
-      return { ...group, members: Number(members.Count || 0) };
-    }));
-    return jsonResponse(200, { groups: withCounts });
   };
 
   const requestNewContact = async (event) => {
@@ -960,27 +782,13 @@ export const createHandler = ({
     if (path === '/api/trivia/question' && method === 'GET') return triviaQuestion(event);
     if (path === '/api/trivia/answer' && method === 'POST') return triviaAnswer(event);
     if (path === '/api/contact/request' && method === 'POST') return requestNewContact(event);
-    if (path === '/api/groups' && method === 'GET') {
-      await requireTriviaGate(event);
-      return listGroups();
-    }
     if (path === '/api/guests' && method === 'GET') {
       await requireTriviaGate(event);
       const captchaCookies = [];
-      const groupId = new URLSearchParams(event.rawQueryString || '').get('group') || '';
-      const response = await listGuests(groupId);
+      const response = await listGuests();
       if (captchaCookies.length > 0) response.cookies = captchaCookies;
       return response;
     }
-    if (path === '/api/rsvp/summary' && method === 'GET') {
-      await requireTriviaGate(event);
-      return rsvpSummary();
-    }
-    if (path === '/api/rsvp' && method === 'GET') return getRsvp(event);
-    if (path === '/api/rsvp' && method === 'PUT') return saveRsvp(event);
-    if (path === '/api/admin/settings' && method === 'GET') return adminSettings(event);
-    if (path === '/api/admin/settings' && method === 'PUT') return saveAdminSettings(event);
-    if (path === '/api/admin/groups' && method === 'GET') return adminGroups(event);
     if (path === '/api/auth/start' && method === 'POST') return authStart(event);
     if (path === '/api/register/start' && method === 'POST') return startFriendRegistration(event);
     if (path === '/api/register/status' && method === 'GET') return registrationStatus(event);
