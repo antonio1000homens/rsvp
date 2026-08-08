@@ -186,12 +186,34 @@ export const seedContacts = async ({ ddb, file }) => {
   for (const result of results) process.stdout.write(`${result}\n`);
 };
 
+export const markContactAdded = async ({ ddb, prompt = promptInterface() }) => {
+  try {
+    const nickname = normalizeNickname(await prompt.question('Nickname do contacto adicionado: '));
+    const result = await ddb.send(new ScanCommand({
+      TableName: tableName,
+      FilterExpression: 'sk = :profile AND nickname = :nickname AND identityStatus = :toAdd',
+      ExpressionAttributeValues: { ':profile': 'PROFILE', ':nickname': nickname.display, ':toAdd': 'to_add' },
+      ProjectionExpression: 'pk, sk, nickname',
+    }));
+    const guest = result.Items?.[0];
+    if (!guest) throw new Error('No pending contact-add request has that nickname.');
+    await ddb.send(new TransactWriteCommand({ TransactItems: [{ Update: {
+      TableName: tableName, Key: { pk: guest.pk, sk: guest.sk },
+      UpdateExpression: 'SET identityStatus = :unconfirmed, updatedAt = :now',
+      ConditionExpression: 'identityStatus = :toAdd AND enabled = :enabled',
+      ExpressionAttributeValues: { ':unconfirmed': 'unconfirmed', ':toAdd': 'to_add', ':enabled': true, ':now': Math.floor(Date.now() / 1000) },
+    } }] }));
+    process.stdout.write(`Marked ${guest.nickname} as ready for WhatsApp verification.\n`);
+  } finally { prompt.close?.(); }
+};
+
 export const main = async (command = process.argv[2], clients = defaultClients()) => {
   if (command === 'add') return addGuest({ ...clients });
   if (command === 'seed') return seedContacts({ ...clients, file: process.argv[3] });
   if (command === 'list') return listGuests({ ...clients });
   if (command === 'disable') return disableGuest({ ...clients });
-  throw new Error('Usage: guest-admin.mjs <add|list|disable>');
+  if (command === 'mark-added') return markContactAdded({ ...clients });
+  throw new Error('Usage: guest-admin.mjs <add|list|disable|mark-added>');
 };
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

@@ -18,6 +18,7 @@ const elements = {
   whatsappLink: document.querySelector('#whatsapp-link'),
   actions: document.querySelector('#actions'),
   createPasskey: document.querySelector('#create-passkey'),
+  retryRegistration: document.querySelector('#retry-registration'),
   backButton: document.querySelector('#back-button'),
   sessionSection: document.querySelector('#session-section'),
   sessionName: document.querySelector('#session-name'),
@@ -25,11 +26,16 @@ const elements = {
   addPasskey: document.querySelector('#add-passkey'),
   logout: document.querySelector('#logout'),
   registrationStatus: document.querySelector('#registration-status'),
+  newContactForm: document.querySelector('#new-contact-form'),
+  newContactQr: document.querySelector('#new-contact-qr'),
+  newContactMessage: document.querySelector('#new-contact-message'),
+  newContactQrCanvas: document.querySelector('#new-contact-qr-canvas'),
 };
 
 let selectedGuest = null;
 let pollGeneration = 0;
 let triviaChallenge = '';
+let triviaToken = '';
 
 const api = async (path, options = {}) => {
   const response = await fetch(path, {
@@ -66,6 +72,7 @@ const showFlow = () => {
   elements.whatsappPanel.hidden = true;
   elements.actions.hidden = false;
   elements.createPasskey.hidden = true;
+  elements.retryRegistration.hidden = true;
 };
 
 const showRegistrationWhatsapp = async (result) => {
@@ -88,6 +95,13 @@ const showRegistrationWhatsapp = async (result) => {
         await registerPasskey();
         return;
       }
+      if (state.status === 'sender_mismatch') {
+        elements.whatsappPanel.hidden = true;
+        elements.actions.hidden = false;
+        elements.retryRegistration.hidden = false;
+        elements.status.textContent = 'Não consegui verificar o contacto. Verifica o nome ou se estás a usar o WhatsApp da conta certa.';
+        return;
+      }
       if (state.status === 'expired') { elements.status.textContent = 'Este registo expirou. Tente novamente.'; elements.whatsappPanel.hidden = true; elements.guestSection.hidden = false; return; }
     } catch { elements.status.textContent = 'O estado da verificação está temporariamente indisponível; a tentar novamente…'; }
     window.setTimeout(poll, document.hidden ? 10000 : 3000);
@@ -102,6 +116,8 @@ const startGuestRegistration = async () => {
   } catch (error) { elements.registrationStatus.textContent = readableError(error); }
 };
 
+elements.retryRegistration.addEventListener('click', () => startGuestRegistration());
+
 const readableError = (error) => {
   if (error.name === 'NotAllowedError') return 'A utilização da chave de acesso foi cancelada ou expirou.';
   if (error.code === 'whatsapp_unavailable') return 'O início de sessão pelo WhatsApp ainda não está configurado.';
@@ -111,6 +127,9 @@ const readableError = (error) => {
   if (error.code === 'registration_not_required') return 'Este contacto já está registado.';
   if (error.code === 'passkey_required') return 'Este contacto já está confirmado, mas ainda não tem uma chave de acesso configurada.';
   if (error.code === 'registration_unavailable') return 'Esse nome ou contacto já está registado.';
+  if (error.code === 'sender_mismatch') return 'Não consegui verificar o contacto. Verifica o nome ou se estás a usar o WhatsApp da conta certa.';
+  if (error.code === 'invalid_contact_details') return 'Indica um nickname válido.';
+  if (error.code === 'contact_already_requested') return 'Este nome já tem um pedido pendente.';
   return 'Não foi possível concluir a autenticação. Tente novamente.';
 };
 
@@ -200,11 +219,20 @@ const answerTrivia = async (event) => {
     await post('/api/trivia/answer', { challenge: triviaChallenge, answer: elements.triviaAnswer.value });
     elements.triviaForm.hidden = true;
     elements.triviaStatus.textContent = 'Resposta correta.';
+    elements.newContactForm.hidden = false;
     await loadGuests();
   } catch (error) {
     elements.triviaStatus.textContent = error.code === 'trivia_incorrect'
-      ? 'Resposta incorreta. Tente novamente.'
+      ? 'Resposta incorreta.'
       : 'Não foi possível validar a resposta. Tente novamente.';
+    if (error.code === 'trivia_incorrect') {
+      elements.triviaStatus.textContent += ' Podes passar à pergunta seguinte.';
+      const next = document.createElement('button');
+      next.type = 'button';
+      next.textContent = 'Passar à pergunta seguinte';
+      next.onclick = () => { next.remove(); elements.triviaStatus.textContent = ''; loadTriviaQuestion(triviaToken); };
+      elements.triviaStatus.append(' ', next);
+    }
   }
 };
 
@@ -225,6 +253,7 @@ const loadTurnstile = async () => {
       sitekey: config.siteKey,
       action: 'guest-directory',
       callback: async (token) => {
+        triviaToken = token;
         elements.captchaStatus.textContent = 'Verificação de segurança concluída.';
         await loadTriviaQuestion(token);
         resolve();
@@ -257,6 +286,18 @@ elements.logout.addEventListener('click', async () => {
   await loadGuests();
 });
 elements.triviaForm.addEventListener('submit', answerTrivia);
+elements.newContactForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const form = new FormData(elements.newContactForm);
+  elements.registrationStatus.textContent = 'A criar o pedido…';
+  try {
+    const result = await post('/api/contact/request', { name: form.get('name') });
+    elements.newContactForm.hidden = true;
+    elements.newContactQr.hidden = false;
+    elements.newContactMessage.textContent = 'Pedido criado como “para adicionar”. Envia esta mensagem para o Antonio.';
+    await QRCode.toCanvas(elements.newContactQrCanvas, result.whatsappUrl, { width: 228, margin: 1 });
+  } catch (error) { elements.registrationStatus.textContent = readableError(error); }
+});
 
 const initialize = async () => {
   try {

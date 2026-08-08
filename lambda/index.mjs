@@ -61,6 +61,7 @@ const TRIVIA_QUESTIONS = Object.freeze([
   { id: 'policia', question: 'Quem é o polícia?', answers: ['rui', 'checa'] },
   { id: 'vacas', question: 'Um dos irmãos Vacas', answers: ['rui', 'goncalo'] },
 ]);
+const CONTACT_REQUEST_NUMBER = '+447810354233';
 
 const jsonResponse = (statusCode, payload, { headers = {}, cookies = [] } = {}) => ({
   statusCode,
@@ -426,6 +427,7 @@ export const createHandler = ({
       ProjectionExpression: 'guestId, nickname, identityStatus',
     }));
     const guests = (result.Items || [])
+      .filter(({ identityStatus }) => identityStatus !== 'to_add')
       .map(({ guestId, nickname, identityStatus }) => ({
         id: guestId,
         nickname: nickname.replace(/ — Por confirmar$/, ''),
@@ -433,6 +435,39 @@ export const createHandler = ({
       }))
       .sort((left, right) => left.nickname.localeCompare(right.nickname));
     return jsonResponse(200, { guests });
+  };
+
+  const requestNewContact = async (event) => {
+    await requireTriviaGate(event);
+    const body = parseJsonBody(event);
+    let name;
+    try {
+      name = normalizeContactName(body.name);
+    } catch (error) {
+      throw new ApiError(400, 'invalid_contact_details', error.message);
+    }
+    const existing = await ddb.send(new ScanCommand({
+      TableName: env.RSVP_TABLE,
+      FilterExpression: 'sk = :profile AND entityType = :guest AND nicknameLookup = :nicknameLookup AND enabled = :enabled',
+      ExpressionAttributeValues: { ':profile': 'PROFILE', ':guest': 'guest', ':nicknameLookup': name.lookup, ':enabled': true },
+      ProjectionExpression: 'guestId',
+    }));
+    if (existing.Items?.length) throw new ApiError(409, 'contact_already_requested');
+    const guestId = randomUUID();
+    const nowValue = now();
+    await ddb.send(new PutCommand({
+      TableName: env.RSVP_TABLE,
+      Item: {
+        pk: `GUEST#${guestId}`, sk: 'PROFILE', entityType: 'guest', guestId,
+        nickname: name.display, nicknameLookup: name.lookup, sender: name.display,
+        identityStatus: 'to_add', enabled: true, sessionVersion: 1,
+        createdAt: nowValue, updatedAt: nowValue,
+      },
+      ConditionExpression: 'attribute_not_exists(pk)',
+    }));
+    const whatsappUrl = new URL(`https://wa.me/${CONTACT_REQUEST_NUMBER.slice(1)}`);
+    whatsappUrl.searchParams.set('text', `Ola Antonio, eu sou o ${name.display} e este e o meu numero de whatsapp. podes-me adicionar a pagina.`);
+    return jsonResponse(200, { status: 'to_add', whatsappUrl: whatsappUrl.toString() });
   };
 
   const authStart = async (event) => {
@@ -514,7 +549,7 @@ export const createHandler = ({
     if (token?.type !== 'registration') return jsonResponse(200, { status: 'expired' }, { cookies: [clearCookie('rsvp_registration')] });
     const challenge = await getRegistrationChallenge(token.nonce);
     if (!challenge || challenge.expiresAt < now()) return jsonResponse(200, { status: 'expired' }, { cookies: [clearCookie('rsvp_registration')] });
-    return jsonResponse(200, { status: challenge.status === 'created' ? 'created' : 'pending' });
+    return jsonResponse(200, { status: challenge.status === 'created' ? 'created' : challenge.lastError || 'pending' });
   };
 
   const registerPhoneWebhook = async (event) => {
@@ -538,8 +573,21 @@ export const createHandler = ({
     const key = { pk: `REGISTRATION#${tokenHash(nonce)}`, sk: 'CHALLENGE' };
     const existing = await ddb.send(new GetCommand({ TableName: env.RSVP_TABLE, Key: key, ConsistentRead: true }));
     const challenge = existing.Item;
-    if (!challenge || challenge.status !== 'pending' || challenge.expiresAt < now() || challenge.senderLookup !== decodedSender.lookup || normalizedSender.lookup !== challenge.senderLookup) {
+    if (!challenge || challenge.status !== 'pending' || challenge.expiresAt < now()) {
       throw new ApiError(challenge?.status === 'created' ? 409 : 410, 'registration_challenge_unavailable');
+    }
+    if (challenge.senderLookup !== decodedSender.lookup || normalizedSender.lookup !== challenge.senderLookup) {
+      await ddb.send(new UpdateCommand({
+        TableName: env.RSVP_TABLE,
+        Key: key,
+        UpdateExpression: 'SET lastError = :error, lastErrorAt = :now REMOVE approvedAt',
+        ConditionExpression: '#status = :pending AND expiresAt >= :now',
+        ExpressionAttributeNames: { '#status': 'status' },
+        ExpressionAttributeValues: { ':error': 'sender_mismatch', ':pending': 'pending', ':now': now() },
+      }));
+      // The webhook was processed successfully. The mismatch is an expected
+      // business outcome, so Tasker must not treat it as an HTTP failure.
+      return emptyResponse(204);
     }
     const selectedGuest = await getGuest(challenge.guestId);
     try {
@@ -730,6 +778,7 @@ export const createHandler = ({
     }
     if (path === '/api/trivia/question' && method === 'GET') return triviaQuestion(event);
     if (path === '/api/trivia/answer' && method === 'POST') return triviaAnswer(event);
+    if (path === '/api/contact/request' && method === 'POST') return requestNewContact(event);
     if (path === '/api/guests' && method === 'GET') {
       await requireTriviaGate(event);
       const captchaCookies = [];
