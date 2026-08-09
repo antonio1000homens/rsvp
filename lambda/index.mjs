@@ -203,15 +203,15 @@ const responseChoices = (body, days) => {
   const availableDays = Array.isArray(body.availableDays) ? [...new Set(body.availableDays.map(String))] : [];
   const mealTypes = Array.isArray(body.mealTypes) ? [...new Set(body.mealTypes.map(String))] : [];
   const guestCount = Number(body.guestCount);
-  const attendanceType = String(body.attendanceType || 'family');
+  const preferenceType = String(body.preferenceType || body.attendanceType || 'families');
   const dietaryRestrictions = String(body.dietaryRestrictions || '').trim();
   const restaurantChoice = String(body.restaurantChoice || '').trim().replace(/\s+/g, ' ');
   if (!availableDays.length || !availableDays.every((day) => days.includes(day))) throw new ApiError(400, 'invalid_availability');
   if (!mealTypes.length || !mealTypes.every((type) => ['lunch', 'dinner', 'drinks'].includes(type))) throw new ApiError(400, 'invalid_meal_types');
   if (!Number.isInteger(guestCount) || guestCount < 1 || guestCount > 12) throw new ApiError(400, 'invalid_guest_count');
-  if (!['family', 'adults'].includes(attendanceType)) throw new ApiError(400, 'invalid_attendance_type');
+  if (!['adults', 'plusOnes', 'families'].includes(preferenceType)) throw new ApiError(400, 'invalid_preference_type');
   if (dietaryRestrictions.length > 500 || restaurantChoice.length < 2 || restaurantChoice.length > 120) throw new ApiError(400, 'invalid_preferences');
-  return { availableDays, mealTypes, guestCount, attendanceType, dietaryRestrictions, restaurantChoice };
+  return { availableDays, mealTypes, guestCount, preferenceType, dietaryRestrictions, restaurantChoice };
 };
 
 const conditionalFailure = (error) =>
@@ -546,7 +546,7 @@ export const createHandler = ({
     const response = await rsvpForGuest(guest.guestId);
     return jsonResponse(200, { ...(await rsvpConfig()), response: response ? {
       availableDays: response.availableDays, mealTypes: response.mealTypes, guestCount: response.guestCount,
-      attendanceType: response.attendanceType || 'family', dietaryRestrictions: response.dietaryRestrictions, restaurantChoice: response.restaurantChoice,
+      preferenceType: response.preferenceType || (response.attendanceType === 'adults' ? 'adults' : 'families'), dietaryRestrictions: response.dietaryRestrictions, restaurantChoice: response.restaurantChoice,
     } : null });
   };
 

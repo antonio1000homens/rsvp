@@ -97,12 +97,13 @@ const renderRsvpForm = ({ days, response }) => {
     const label = document.createElement('label');
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox'; checkbox.name = 'availableDays'; checkbox.value = day;
+    if (elements.availabilityDays.children.length === 0) checkbox.required = true;
     checkbox.checked = response?.availableDays?.includes(day) || false;
     label.append(checkbox, ` ${day}`);
     elements.availabilityDays.append(label);
   }
   elements.rsvpForm.elements.guestCount.value = response?.guestCount || '';
-  elements.rsvpForm.elements.attendanceType.value = response?.attendanceType || 'family';
+  elements.rsvpForm.elements.preferenceType.value = response?.preferenceType || 'families';
   elements.restaurantChoice.replaceChildren();
   const restaurantChoices = response?.restaurantChoices || [];
   const choices = restaurantChoices.length ? restaurantChoices : ['Por decidir'];
@@ -113,6 +114,7 @@ const renderRsvpForm = ({ days, response }) => {
   for (const checkbox of elements.rsvpForm.querySelectorAll('input[name="mealTypes"]')) {
     checkbox.checked = response?.mealTypes?.includes(checkbox.value) || false;
   }
+  elements.rsvpForm.querySelector('input[name="mealTypes"]').required = true;
 };
 
 const renderWhatsappRsvpForm = ({ days, restaurantChoices }) => {
@@ -121,6 +123,7 @@ const renderWhatsappRsvpForm = ({ days, restaurantChoices }) => {
     const label = document.createElement('label');
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox'; checkbox.name = 'availableDays'; checkbox.value = day;
+    if (elements.whatsappAvailabilityDays.children.length === 0) checkbox.required = true;
     label.append(checkbox, ` ${day}`);
     elements.whatsappAvailabilityDays.append(label);
   }
@@ -128,6 +131,7 @@ const renderWhatsappRsvpForm = ({ days, restaurantChoices }) => {
   for (const choice of (restaurantChoices.length ? restaurantChoices : ['Por decidir'])) {
     elements.whatsappRestaurantChoice.add(new Option(choice, choice));
   }
+  elements.whatsappRsvpForm.querySelector('input[name="mealTypes"]').required = true;
 };
 
 const openWhatsappRsvpForm = (config) => {
@@ -245,6 +249,11 @@ const readableError = (error) => {
   if (error.code === 'registration_unavailable') return 'Esse nome ou contacto já está registado.';
   if (error.code === 'sender_mismatch') return 'Não consegui verificar o contacto. Verifica o nome ou se estás a usar o WhatsApp da conta certa.';
   if (error.code === 'invalid_contact_details') return 'Indica um nickname válido.';
+  if (error.code === 'invalid_availability') return 'Seleciona pelo menos um dia disponível.';
+  if (error.code === 'invalid_meal_types') return 'Seleciona pelo menos uma preferência: almoço, jantar ou copos.';
+  if (error.code === 'invalid_guest_count') return 'Indica quantas pessoas participam.';
+  if (error.code === 'invalid_preference_type') return 'Seleciona uma preferência válida: 18+, +1s ou Famílias.';
+  if (error.code === 'invalid_preferences' || error.code === 'invalid_restaurant_choice') return 'Seleciona uma escolha de restaurante válida.';
   if (error.code === 'contact_already_requested') return 'Este nome já tem um pedido pendente.';
   return 'Não foi possível concluir a autenticação. Tente novamente.';
 };
@@ -464,7 +473,7 @@ elements.rsvpForm.addEventListener('submit', async (event) => {
     guestCount: Number(form.get('guestCount')),
     mealTypes: form.getAll('mealTypes'),
     restaurantChoice: form.get('restaurantChoice'),
-    attendanceType: form.get('attendanceType'),
+    preferenceType: form.get('preferenceType'),
     dietaryRestrictions: form.get('dietaryRestrictions'),
   };
   elements.sessionStatus.textContent = 'A guardar…';
@@ -478,7 +487,7 @@ elements.whatsappRsvpForm.addEventListener('submit', async (event) => {
   const form = new FormData(elements.whatsappRsvpForm);
   const payload = {
     availableDays: form.getAll('availableDays'), guestCount: Number(form.get('guestCount')),
-    mealTypes: form.getAll('mealTypes'), restaurantChoice: form.get('restaurantChoice'), attendanceType: form.get('attendanceType'),
+    mealTypes: form.getAll('mealTypes'), restaurantChoice: form.get('restaurantChoice'), preferenceType: form.get('preferenceType'),
     dietaryRestrictions: form.get('dietaryRestrictions'),
   };
   try {
