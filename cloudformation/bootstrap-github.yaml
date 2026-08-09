@@ -24,10 +24,6 @@ Parameters:
   TableName:
     Type: String
     Default: rsvp
-  FunctionName:
-    Type: String
-    Default: rsvp-app
-
 Resources:
   CloudFormationServiceRole:
     Type: AWS::IAM::Role

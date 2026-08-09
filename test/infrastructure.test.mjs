@@ -14,7 +14,7 @@ test('CloudFormation grants only the new table and SSM capabilities required by 
   assert.match(template, /Type: AWS::SQS::Queue/);
   assert.match(template, /maxReceiveCount: 5/);
   assert.match(template, /Type: AWS::Lambda::EventSourceMapping/);
-  assert.match(template, /MaximumConcurrency: 1/);
+  assert.match(template, /ReservedConcurrentExecutions: 1/);
   assert.match(template, /Action: sqs:SendMessage/);
   assert.match(template, /PHONE_QUEUE_URL: !Ref PhoneRegistrationQueue/);
   assert.doesNotMatch(template, /ssm:GetParametersByPath/);

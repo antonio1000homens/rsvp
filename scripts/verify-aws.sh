@@ -69,8 +69,8 @@ processor_config="$(aws_cli lambda get-function-configuration --function-name "$
 processor_concurrency="$(aws_cli lambda get-function-concurrency --function-name "${phone_processor_arn}" --query 'ReservedConcurrentExecutions' --output text)"
 [ "${processor_concurrency}" = '1' ]
 
-mapping_config="$(aws_cli lambda list-event-source-mappings --function-name "${phone_processor_arn}" --query 'EventSourceMappings[0].[BatchSize,ScalingConfig.MaximumConcurrency,State]' --output text)"
-[ "${mapping_config}" = $'1\t1\tEnabled' ]
+mapping_config="$(aws_cli lambda list-event-source-mappings --function-name "${phone_processor_arn}" --query 'EventSourceMappings[0].[BatchSize,State]' --output text)"
+[ "${mapping_config}" = $'1\tEnabled' ]
 
 dlq_alarm="$(aws_cli cloudwatch describe-alarms --alarm-names rsvp-phone-registration-dlq-not-empty --query 'MetricAlarms[0].AlarmName' --output text)"
 [ "${dlq_alarm}" = 'rsvp-phone-registration-dlq-not-empty' ]
