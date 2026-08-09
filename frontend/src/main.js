@@ -220,6 +220,20 @@ const showFlow = () => {
   elements.retryRegistration.hidden = true;
 };
 
+const showValidatedGuestSelection = () => {
+  pollGeneration += 1;
+  setWaiting(false);
+  selectedGuest = null;
+  elements.flowSection.hidden = true;
+  elements.sessionSection.hidden = true;
+  elements.guestSection.hidden = false;
+  elements.captcha.hidden = true;
+  elements.captchaStatus.hidden = true;
+  elements.triviaForm.hidden = true;
+  elements.triviaStatus.hidden = true;
+  elements.validatedContent.hidden = false;
+};
+
 const showRegistrationWhatsapp = async (result) => {
   const generation = ++pollGeneration;
   elements.guestSection.hidden = true;
@@ -247,9 +261,8 @@ const showRegistrationWhatsapp = async (result) => {
       if (state.status === 'sender_mismatch') {
         setWaiting(false);
         elements.whatsappPanel.hidden = true;
-        elements.actions.hidden = false;
-        elements.retryRegistration.hidden = true;
-        elements.status.textContent = 'Contacto whatsapp nao condiz com nome escolhido. Verifica o nome ou se estás a usar o WhatsApp da conta certa, ou pede para seres adicionado';
+        elements.status.textContent = 'Contacto WhatsApp não corresponde ao nome escolhido. Escolhe outro nome.';
+        showValidatedGuestSelection();
         return;
       }
       if (state.status === 'expired') { setWaiting(false); elements.status.textContent = 'Este registo expirou. Tente novamente.'; elements.whatsappPanel.hidden = true; elements.guestSection.hidden = false; return; }
@@ -469,11 +482,7 @@ const loadTurnstile = async () => {
 };
 
 elements.backButton.addEventListener('click', () => {
-  pollGeneration += 1;
-  setWaiting(false);
-  selectedGuest = null;
-  elements.flowSection.hidden = true;
-  elements.guestSection.hidden = false;
+  showValidatedGuestSelection();
 });
 elements.createPasskey.addEventListener('click', registerPasskey);
 elements.addPasskey.addEventListener('click', registerPasskey);
