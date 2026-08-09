@@ -5,6 +5,7 @@ on:
     paths:
       - cloudformation/**
       - lambda/**
+      - frontend/**
       - scripts/**
       - src/**
       - package.json
@@ -16,6 +17,7 @@ on:
     paths:
       - cloudformation/**
       - lambda/**
+      - frontend/**
       - scripts/**
       - src/**
       - package.json
