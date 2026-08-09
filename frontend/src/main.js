@@ -102,6 +102,7 @@ const renderRsvpForm = ({ days, response }) => {
     elements.availabilityDays.append(label);
   }
   elements.rsvpForm.elements.guestCount.value = response?.guestCount || '';
+  elements.rsvpForm.elements.attendanceType.value = response?.attendanceType || 'family';
   elements.restaurantChoice.replaceChildren();
   const restaurantChoices = response?.restaurantChoices || [];
   const choices = restaurantChoices.length ? restaurantChoices : ['Por decidir'];
@@ -360,7 +361,10 @@ const loadTriviaQuestion = async (turnstileToken) => {
 };
 
 const completeValidation = async () => {
+  elements.captcha.hidden = true;
+  elements.captchaStatus.hidden = true;
   elements.triviaForm.hidden = true;
+  elements.triviaStatus.hidden = true;
   elements.validatedContent.hidden = false;
   elements.newContactForm.hidden = false;
   await Promise.all([loadGroups(), loadRsvpSummary()]);
@@ -409,6 +413,9 @@ const loadTurnstile = async () => {
         resolve();
       },
       'expired-callback': () => {
+        elements.captcha.hidden = false;
+        elements.captchaStatus.hidden = false;
+        elements.triviaStatus.hidden = false;
         elements.captchaStatus.textContent = 'A verificação de segurança expirou. Conclua-a novamente.';
         elements.guestList.replaceChildren();
         elements.validatedContent.hidden = true;
@@ -457,6 +464,7 @@ elements.rsvpForm.addEventListener('submit', async (event) => {
     guestCount: Number(form.get('guestCount')),
     mealTypes: form.getAll('mealTypes'),
     restaurantChoice: form.get('restaurantChoice'),
+    attendanceType: form.get('attendanceType'),
     dietaryRestrictions: form.get('dietaryRestrictions'),
   };
   elements.sessionStatus.textContent = 'A guardar…';
@@ -470,7 +478,7 @@ elements.whatsappRsvpForm.addEventListener('submit', async (event) => {
   const form = new FormData(elements.whatsappRsvpForm);
   const payload = {
     availableDays: form.getAll('availableDays'), guestCount: Number(form.get('guestCount')),
-    mealTypes: form.getAll('mealTypes'), restaurantChoice: form.get('restaurantChoice'),
+    mealTypes: form.getAll('mealTypes'), restaurantChoice: form.get('restaurantChoice'), attendanceType: form.get('attendanceType'),
     dietaryRestrictions: form.get('dietaryRestrictions'),
   };
   try {

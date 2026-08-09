@@ -21,8 +21,10 @@
         <form id="trivia-form" hidden>
           <label for="trivia-answer" id="trivia-question"></label>
           <input id="trivia-answer" name="answer" required autocomplete="off">
-          <button type="submit">Mostrar nomes</button>
-          <button id="skip-trivia" type="button" class="secondary">Não sei</button>
+          <div class="trivia-actions">
+            <button type="submit">Mostrar nomes</button>
+            <button id="skip-trivia" type="button" class="secondary">Não sei</button>
+          </div>
         </form>
         <p id="trivia-status" class="status" role="status" aria-live="polite"></p>
         <div id="validated-content" hidden>
@@ -72,7 +74,8 @@
           <h3>Indica a tua disponibilidade</h3>
           <fieldset><legend>Em que dias podes?</legend><div id="whatsapp-availability-days" class="choice-grid"></div></fieldset>
           <label for="whatsapp-guest-count">Quantas pessoas, incluindo-te?</label><input id="whatsapp-guest-count" name="guestCount" type="number" min="1" max="12" required>
-          <fieldset><legend>O que preferes?</legend><div class="choice-grid"><label><input type="checkbox" name="mealTypes" value="lunch"> Almoço</label><label><input type="checkbox" name="mealTypes" value="dinner"> Jantar</label><label><input type="checkbox" name="mealTypes" value="drinks"> Só bebidas</label></div></fieldset>
+          <label for="whatsapp-attendance-type">Quem participa?</label><select id="whatsapp-attendance-type" name="attendanceType" required><option value="family">Família</option><option value="adults">18+</option></select>
+          <fieldset><legend>O que preferes?</legend><div class="choice-grid"><label><input type="checkbox" name="mealTypes" value="lunch"> Almoço</label><label><input type="checkbox" name="mealTypes" value="dinner"> Jantar</label><label><input type="checkbox" name="mealTypes" value="drinks"> Copos</label></div></fieldset>
           <label for="whatsapp-restaurant-choice">Restaurante preferido</label><select id="whatsapp-restaurant-choice" name="restaurantChoice" required></select>
           <label for="whatsapp-dietary-restrictions">Restrições alimentares</label><textarea id="whatsapp-dietary-restrictions" name="dietaryRestrictions" maxlength="500" placeholder="Nenhuma"></textarea>
           <button type="submit">Continuar para WhatsApp</button>
@@ -93,12 +96,14 @@
           </fieldset>
           <label for="guest-count">Quantas pessoas, incluindo-te?</label>
           <input id="guest-count" name="guestCount" type="number" min="1" max="12" required>
+          <label for="attendance-type">Quem participa?</label>
+          <select id="attendance-type" name="attendanceType" required><option value="family">Família</option><option value="adults">18+</option></select>
           <fieldset>
             <legend>O que preferes?</legend>
             <div class="choice-grid">
               <label><input type="checkbox" name="mealTypes" value="lunch"> Almoço</label>
               <label><input type="checkbox" name="mealTypes" value="dinner"> Jantar</label>
-              <label><input type="checkbox" name="mealTypes" value="drinks"> Só bebidas</label>
+              <label><input type="checkbox" name="mealTypes" value="drinks"> Copos</label>
             </div>
           </fieldset>
           <label for="restaurant-choice">Restaurante preferido</label>
