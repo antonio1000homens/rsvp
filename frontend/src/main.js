@@ -319,6 +319,7 @@ const readableError = (error) => {
   if (error.code === 'authentication_challenge_expired') return 'Esta tentativa de início de sessão expirou. Tente novamente.';
   if (error.code === 'passkey_verification_failed') return 'Não foi possível verificar essa chave de acesso.';
   if (error.code === 'registration_required') return 'Este contacto precisa de concluir o registo.';
+  if (error.code === 'registration_already_pending') return 'Já existe uma validação WhatsApp pendente para este contacto. Continua a utilizar a mensagem anterior.';
   if (error.code === 'registration_not_required') return 'Este contacto já está registado.';
   if (error.code === 'passkey_required') return 'Este contacto já está confirmado, mas ainda não tem uma chave de acesso configurada.';
   if (error.code === 'registration_unavailable') return 'Esse nome ou contacto já está registado.';

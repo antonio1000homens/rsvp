@@ -593,10 +593,16 @@ export const createHandler = ({
     if (retrieval && !existingResponse) throw new ApiError(409, 'registration_required');
     const response = retrieval ? null : responseChoices(body, config.days);
     if (response) validateRestaurantChoices(response.restaurantChoices, config.restaurantChoices);
+    const pendingKey = { pk: `GUEST#${guest.guestId}`, sk: 'PENDING_REGISTRATION' };
+    const pending = (await ddb.send(new GetCommand({ TableName: env.RSVP_TABLE, Key: pendingKey, ConsistentRead: true }))).Item;
+    if (pending?.expiresAt >= now()) throw new ApiError(409, 'registration_already_pending');
     const sender = normalizeContactName(guest.sender || guest.nickname);
     const nonce = toBase64Url(randomBytes(32));
     const expiresAt = now() + WHATSAPP_TTL_SECONDS;
-    await ddb.send(new PutCommand({ TableName: env.RSVP_TABLE, Item: { pk: `REGISTRATION#${tokenHash(nonce)}`, sk: 'CHALLENGE', entityType: 'registrationChallenge', guestId: guest.guestId, sender: sender.display, senderLookup: sender.lookup, ...(response ? { response } : {}), purpose: retrieval ? 'retrieve' : 'register', status: 'pending', expiresAt, createdAt: now() }, ConditionExpression: 'attribute_not_exists(pk)' }));
+    await ddb.send(new TransactWriteCommand({ TransactItems: [
+      { Put: { TableName: env.RSVP_TABLE, Item: { ...pendingKey, entityType: 'pendingRegistration', nonce, expiresAt }, ConditionExpression: 'attribute_not_exists(pk) OR expiresAt < :now', ExpressionAttributeValues: { ':now': now() } } },
+      { Put: { TableName: env.RSVP_TABLE, Item: { pk: `REGISTRATION#${tokenHash(nonce)}`, sk: 'CHALLENGE', entityType: 'registrationChallenge', guestId: guest.guestId, sender: sender.display, senderLookup: sender.lookup, ...(response ? { response } : {}), purpose: retrieval ? 'retrieve' : 'register', status: 'pending', expiresAt, createdAt: now() }, ConditionExpression: 'attribute_not_exists(pk)' } },
+    ] }));
     let appNumber;
     try { appNumber = normalizeE164(await getWhatsappNumber()); } catch { throw new ApiError(503, 'whatsapp_unavailable'); }
     const signedMessage = `contact=${encodeURIComponent(sender.display)}&nonce=${nonce}`;
