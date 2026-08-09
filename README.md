@@ -113,7 +113,9 @@ Existing installations remain compatible while no groups exist: the directory co
 
 ## RSVP availability and preferences
 
-After CAPTCHA and, when enabled, trivia validation, guests can choose **Usar somente o WhatsApp**. This opens the availability form without creating a browser account. On submission, the site opens WhatsApp with an encoded `RSVP ...` message addressed to the event number. Tasker must verify that the sender is an enabled contact, then forward the sender plus the exact message to `POST /api/phone/rsvp`. The backend maps the verified sender to their guest record and stores the response. The browser must not submit RSVP data directly in this mode.
+After CAPTCHA and, when enabled, trivia validation, the guest selects their existing name. If they already have a passkey, they use it and can view or edit their saved response. Otherwise, the site presents the availability form. Only after the form is completed does it show a QR code and device link for WhatsApp.
+
+The WhatsApp message is a signed one-time validation request associated with the selected guest and their completed response. Tasker verifies the WhatsApp sender is the expected contact, then forwards the sender and the exact message to `POST /api/phone/register`. The backend validates the signature, nonce, sender, and expiry before saving the response. The site then offers optional passkey creation, which lets the guest fetch and edit their answer later.
 
 Passkeys remain available as an optional way to return to and edit a saved response in the browser. Dietary restrictions are returned only to an authenticated passkey session; the post-trivia landing page shows anonymous aggregate availability, meal, and restaurant totals.
 
@@ -139,7 +141,7 @@ Disabling removes the nickname from the public directory, revokes existing sessi
 
 Friends who are not yet listed should first join the WhatsApp group. The host can then add them to the phone contacts and seed a record with both names. Once seeded, the nickname appears in the public list as an unconfirmed guest.
 
-An unconfirmed contact selects their name from the list. The site creates a five-minute WhatsApp challenge and a QR/deep link containing:
+When a selected guest without a passkey completes the availability form, the site creates a five-minute WhatsApp challenge and only then shows its QR/deep link:
 
 ```text
 VALIDATION contact=Ana%20Costa&nonce=<opaque-nonce>&sig=<HMAC-SHA-256-signature>
@@ -157,7 +159,7 @@ Content-Type: application/json
 {"sender":"Ana Costa","message":"VALIDATION contact=Ana%20Costa&nonce=<opaque-nonce>&sig=<signature>"}
 ```
 
-The `contact` field in the validation message is URL-encoded for compatibility with the existing Tasker flow. The nonce and signature are opaque strings and must be forwarded unchanged. The signature is an HMAC-SHA-256 over the exact `contact=...&nonce=...` portion using the private `/rsvp/validation-secret` SecureString. The backend verifies the nonce, stored `sender`, expiry, and WhatsApp sender name before marking the existing guest `confirmed`. Names are matched case-insensitively with accents and cedillas ignored. Creating a passkey is optional; a confirmed contact can instead use the WhatsApp-only RSVP form.
+The `contact` field in the validation message is URL-encoded for compatibility with the existing Tasker flow. The nonce and signature are opaque strings and must be forwarded unchanged. The signature is an HMAC-SHA-256 over the exact `contact=...&nonce=...` portion using the private `/rsvp/validation-secret` SecureString. The backend verifies the nonce, stored `sender`, expiry, and WhatsApp sender name before confirming the guest and saving the response selected before the QR code was shown. Names are matched case-insensitively with accents and cedillas ignored. It then offers, but does not require, passkey creation.
 
 ## WhatsApp Business app configuration
 
@@ -179,7 +181,6 @@ AWS_PROFILE=windsor npm run whatsapp:copy-secret
 
 Paste it into the private Tasker configuration, then clear the clipboard. After explicitly approving the contact match, forward the complete `VALIDATION ...` message unchanged to `/api/phone/register` with the validated contact name as `sender`. The backend returns `204` after confirming the existing guest; replayed, expired, altered, or mismatched challenges are rejected.
 
-For a WhatsApp-only RSVP, Tasker must again verify the WhatsApp sender is an enabled contact and forward the exact `RSVP <base64url-json>` message to `/api/phone/rsvp` using the same bearer secret and `{ "sender": "…", "message": "…" }` body. The backend validates the decoded selections against current event settings and saves them only for the guest associated with the verified sender. Do not decode, alter, or add a guest name to the message.
 
 Rotate a compromised phone webhook secret with:
 

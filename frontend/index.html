@@ -36,24 +36,6 @@
             <div id="availability-chart" class="availability-chart"></div>
             <p id="rsvp-summary-preferences" class="status"></p>
           </section>
-          <button id="use-whatsapp-only" type="button">Usar somente o WhatsApp</button>
-          <form id="whatsapp-rsvp-form" class="rsvp-form" hidden>
-            <h2>Enviar disponibilidade por WhatsApp</h2>
-            <p class="intro">Ao continuar, abrimos o WhatsApp com as tuas escolhas. Envia a mensagem sem a alterar.</p>
-            <fieldset><legend>Em que dias podes?</legend><div id="whatsapp-availability-days" class="choice-grid"></div></fieldset>
-            <label for="whatsapp-guest-count">Quantas pessoas, incluindo-te?</label>
-            <input id="whatsapp-guest-count" name="guestCount" type="number" min="1" max="12" required>
-            <fieldset><legend>O que preferes?</legend><div class="choice-grid">
-              <label><input type="checkbox" name="mealTypes" value="lunch"> Almoço</label>
-              <label><input type="checkbox" name="mealTypes" value="dinner"> Jantar</label>
-              <label><input type="checkbox" name="mealTypes" value="drinks"> Só bebidas</label>
-            </div></fieldset>
-            <label for="whatsapp-restaurant-choice">Restaurante preferido</label>
-            <select id="whatsapp-restaurant-choice" name="restaurantChoice" required></select>
-            <label for="whatsapp-dietary-restrictions">Restrições alimentares</label>
-            <textarea id="whatsapp-dietary-restrictions" name="dietaryRestrictions" maxlength="500" placeholder="Nenhuma"></textarea>
-            <button type="submit">Abrir WhatsApp com as opções</button>
-          </form>
           <hr>
           <h2>Não encontro o meu nome</h2>
           <p class="intro">Se calhar nao tenho o teu whatsapp</p>
@@ -79,9 +61,18 @@
           <p>Leia este código QR com o telefone que utiliza o seu número WhatsApp autorizado.</p>
           <canvas id="qr-code" role="img" aria-label="Código QR de início de sessão do WhatsApp"></canvas>
           <a id="whatsapp-link" class="primary-link" rel="noreferrer">Abrir o WhatsApp neste dispositivo</a>
-          <button id="use-whatsapp-only-from-qr" type="button">Usar somente o WhatsApp</button>
           <p class="fine-print">Envie a mensagem pré-preenchida sem alterações e aguarde a aprovação do anfitrião.</p>
         </div>
+
+        <form id="whatsapp-rsvp-form" class="rsvp-form" hidden>
+          <h3>Indica a tua disponibilidade</h3>
+          <fieldset><legend>Em que dias podes?</legend><div id="whatsapp-availability-days" class="choice-grid"></div></fieldset>
+          <label for="whatsapp-guest-count">Quantas pessoas, incluindo-te?</label><input id="whatsapp-guest-count" name="guestCount" type="number" min="1" max="12" required>
+          <fieldset><legend>O que preferes?</legend><div class="choice-grid"><label><input type="checkbox" name="mealTypes" value="lunch"> Almoço</label><label><input type="checkbox" name="mealTypes" value="dinner"> Jantar</label><label><input type="checkbox" name="mealTypes" value="drinks"> Só bebidas</label></div></fieldset>
+          <label for="whatsapp-restaurant-choice">Restaurante preferido</label><select id="whatsapp-restaurant-choice" name="restaurantChoice" required></select>
+          <label for="whatsapp-dietary-restrictions">Restrições alimentares</label><textarea id="whatsapp-dietary-restrictions" name="dietaryRestrictions" maxlength="500" placeholder="Nenhuma"></textarea>
+          <button type="submit">Continuar para WhatsApp</button>
+        </form>
 
         <div id="actions" class="actions" hidden>
           <button id="retry-registration" type="button" hidden>Tentar novamente</button>

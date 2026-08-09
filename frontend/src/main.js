@@ -42,8 +42,6 @@ const elements = {
   whatsappRsvpForm: document.querySelector('#whatsapp-rsvp-form'),
   whatsappAvailabilityDays: document.querySelector('#whatsapp-availability-days'),
   whatsappRestaurantChoice: document.querySelector('#whatsapp-restaurant-choice'),
-  useWhatsappOnly: document.querySelector('#use-whatsapp-only'),
-  useWhatsappOnlyFromQr: document.querySelector('#use-whatsapp-only-from-qr'),
   availabilityDays: document.querySelector('#availability-days'),
   addPasskey: document.querySelector('#add-passkey'),
   logout: document.querySelector('#logout'),
@@ -59,7 +57,6 @@ let selectedGroup = '';
 let pollGeneration = 0;
 let triviaChallenge = '';
 let triviaToken = '';
-let whatsappRsvpUrl = '';
 
 const api = async (path, options = {}) => {
   const response = await fetch(path, {
@@ -129,14 +126,9 @@ const renderWhatsappRsvpForm = ({ days, restaurantChoices }) => {
   }
 };
 
-const openWhatsappRsvpForm = async () => {
-  try {
-    const config = await api('/api/rsvp/whatsapp/config');
-    whatsappRsvpUrl = config.whatsappUrl;
-    renderWhatsappRsvpForm(config);
-    elements.whatsappRsvpForm.hidden = false;
-    elements.whatsappRsvpForm.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  } catch { elements.registrationStatus.textContent = 'Não foi possível abrir o formulário. Conclua a verificação de segurança e tente novamente.'; }
+const openWhatsappRsvpForm = (config) => {
+  renderWhatsappRsvpForm(config);
+  elements.whatsappRsvpForm.hidden = false;
 };
 
 const loadRsvpForm = async () => {
@@ -189,6 +181,7 @@ const showFlow = () => {
   elements.whatsappPanel.hidden = true;
   elements.actions.hidden = false;
   elements.createPasskey.hidden = true;
+  elements.whatsappRsvpForm.hidden = true;
   elements.retryRegistration.hidden = true;
 };
 
@@ -196,6 +189,7 @@ const showRegistrationWhatsapp = async (result) => {
   const generation = ++pollGeneration;
   elements.guestSection.hidden = true;
   elements.flowSection.hidden = false;
+  elements.whatsappRsvpForm.hidden = true;
   elements.selectedName.textContent = selectedGuest?.nickname || 'Registo';
   elements.status.textContent = 'A aguardar a verificação pelo WhatsApp…';
   elements.whatsappPanel.hidden = false;
@@ -208,14 +202,15 @@ const showRegistrationWhatsapp = async (result) => {
       const state = await api('/api/register/status');
       if (state.status === 'created') {
         elements.whatsappPanel.hidden = true;
-        elements.status.textContent = 'Verificado. Crie a sua chave de acesso.';
-        await registerPasskey();
+        elements.status.textContent = 'Disponibilidade recebida. Quer criar uma chave de acesso para editar a resposta?';
+        elements.actions.hidden = false;
+        elements.createPasskey.hidden = false;
         return;
       }
       if (state.status === 'sender_mismatch') {
         elements.whatsappPanel.hidden = true;
         elements.actions.hidden = false;
-        elements.retryRegistration.hidden = false;
+        elements.retryRegistration.hidden = true;
         elements.status.textContent = 'Não consegui verificar o contacto. Verifica o nome ou se estás a usar o WhatsApp da conta certa.';
         return;
       }
@@ -281,12 +276,12 @@ const selectGuest = async (guest) => {
   showFlow();
   elements.status.textContent = 'A verificar o seu convite…';
   try {
-    if (guest.registrationRequired) {
-      await startGuestRegistration();
-      return;
-    }
     const result = await post('/api/auth/start', { guestId: guest.id });
     if (result.mode === 'passkey') await usePasskey(result.options);
+    if (result.mode === 'whatsapp-rsvp') {
+      elements.status.textContent = 'Preencha a disponibilidade para continuar.';
+      openWhatsappRsvpForm(result);
+    }
   } catch (error) {
     elements.status.textContent = readableError(error);
   }
@@ -432,12 +427,6 @@ elements.backButton.addEventListener('click', () => {
 });
 elements.createPasskey.addEventListener('click', registerPasskey);
 elements.addPasskey.addEventListener('click', registerPasskey);
-elements.useWhatsappOnly.addEventListener('click', openWhatsappRsvpForm);
-elements.useWhatsappOnlyFromQr.addEventListener('click', () => {
-  elements.flowSection.hidden = true;
-  elements.guestSection.hidden = false;
-  openWhatsappRsvpForm();
-});
 elements.logout.addEventListener('click', async () => {
   await post('/api/auth/logout').catch(() => {});
   elements.sessionSection.hidden = true;
@@ -466,7 +455,7 @@ elements.rsvpForm.addEventListener('submit', async (event) => {
     elements.sessionStatus.textContent = 'Disponibilidade guardada.';
   } catch { elements.sessionStatus.textContent = 'Não foi possível guardar. Confirma as opções e tenta novamente.'; }
 });
-elements.whatsappRsvpForm.addEventListener('submit', (event) => {
+elements.whatsappRsvpForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   const form = new FormData(elements.whatsappRsvpForm);
   const payload = {
@@ -474,10 +463,9 @@ elements.whatsappRsvpForm.addEventListener('submit', (event) => {
     mealTypes: form.getAll('mealTypes'), restaurantChoice: form.get('restaurantChoice'),
     dietaryRestrictions: form.get('dietaryRestrictions'),
   };
-  const message = `RSVP ${btoa(unescape(encodeURIComponent(JSON.stringify(payload)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')}`;
-  const url = new URL(whatsappRsvpUrl);
-  url.searchParams.set('text', message);
-  window.location.assign(url);
+  try {
+    await showRegistrationWhatsapp(await post('/api/rsvp/whatsapp/start', { guestId: selectedGuest.id, ...payload }));
+  } catch (error) { elements.status.textContent = readableError(error); }
 });
 elements.adminSettingsForm.addEventListener('submit', async (event) => {
   event.preventDefault();

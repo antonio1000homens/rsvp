@@ -299,24 +299,22 @@ test('an authenticated guest can save RSVP choices and the trivia-gated summary 
   assert.doesNotMatch(serialized, /Vegetariano/);
 });
 
-test('the phone webhook saves an RSVP only for its verified WhatsApp sender', async () => {
+test('the phone webhook saves the RSVP selected before WhatsApp validation', async () => {
   const profile = guest({ sender: 'António Costa', identityStatus: 'confirmed' });
   const { handler, ddb } = makeHandler({ items: [profile] });
-  const message = `RSVP ${Buffer.from(JSON.stringify({
+  const started = await handler(request('/api/rsvp/whatsapp/start', { method: 'POST', body: {
+    guestId: profile.guestId,
     availableDays: ['19 December 2026'], guestCount: 2, mealTypes: ['dinner'],
     restaurantChoice: 'Por decidir', dietaryRestrictions: 'Vegetariano',
-  })).toString('base64url')}`;
-  const response = await handler(request('/api/phone/rsvp', {
+  } }));
+  assert.equal(started.statusCode, 200);
+  const message = new URL(JSON.parse(started.body).whatsappUrl).searchParams.get('text');
+  const response = await handler(request('/api/phone/register', {
     method: 'POST', cookies: [], headers: { authorization: 'Bearer phone-webhook-secret' },
     body: { sender: 'Antonio Costa', message },
   }));
   assert.equal(response.statusCode, 204);
   assert.deepEqual(ddb.get({ pk: `RSVP#${profile.guestId}`, sk: 'RESPONSE' }).availableDays, ['19 December 2026']);
-  const rejected = await handler(request('/api/phone/rsvp', {
-    method: 'POST', cookies: [], headers: { authorization: 'Bearer phone-webhook-secret' },
-    body: { sender: 'Outra Pessoa', message },
-  }));
-  assert.equal(rejected.statusCode, 403);
 });
 
 test('only an admin session can manage restaurant choices', async () => {

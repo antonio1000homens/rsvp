@@ -561,42 +561,24 @@ export const createHandler = ({
     return jsonResponse(200, { saved: true, ...config, response: choices });
   };
 
-  const whatsappRsvpConfig = async (event) => {
+  const startWhatsappRsvp = async (event) => {
     await requireTriviaGate(event);
+    const body = parseJsonBody(event);
+    const guest = await getGuest(validGuestId(body.guestId));
+    const config = await rsvpConfig();
+    const response = responseChoices(body, config.days);
+    if (config.restaurantChoices.length && !config.restaurantChoices.includes(response.restaurantChoice)) throw new ApiError(400, 'invalid_restaurant_choice');
+    const sender = normalizeContactName(guest.sender || guest.nickname);
+    const nonce = toBase64Url(randomBytes(32));
+    const expiresAt = now() + WHATSAPP_TTL_SECONDS;
+    await ddb.send(new PutCommand({ TableName: env.RSVP_TABLE, Item: { pk: `REGISTRATION#${tokenHash(nonce)}`, sk: 'CHALLENGE', entityType: 'registrationChallenge', guestId: guest.guestId, sender: sender.display, senderLookup: sender.lookup, response, status: 'pending', expiresAt, createdAt: now() }, ConditionExpression: 'attribute_not_exists(pk)' }));
     let appNumber;
     try { appNumber = normalizeE164(await getWhatsappNumber()); } catch { throw new ApiError(503, 'whatsapp_unavailable'); }
-    return jsonResponse(200, { ...(await rsvpConfig()), whatsappUrl: `https://wa.me/${appNumber.slice(1)}` });
-  };
-
-  const saveWhatsappRsvp = async (event) => {
-    const authorization = headerValue(event.headers, 'authorization');
-    const expectedSecret = await getPhoneWebhookSecret();
-    const providedSecret = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
-    if (!safeEqual(providedSecret, expectedSecret)) throw new ApiError(401, 'unauthorized');
-    const { sender, message } = parseJsonBody(event);
-    let normalizedSender;
-    try { normalizedSender = normalizeContactName(sender); } catch { throw new ApiError(400, 'invalid_sender'); }
-    const encoded = /^RSVP ([A-Za-z0-9_-]{1,4096})$/.exec(String(message || ''))?.[1];
-    if (!encoded) throw new ApiError(400, 'invalid_rsvp_message');
-    let payload;
-    try { payload = JSON.parse(Buffer.from(encoded, 'base64url').toString('utf8')); } catch { throw new ApiError(400, 'invalid_rsvp_message'); }
-    const config = await rsvpConfig();
-    const choices = responseChoices(payload, config.days);
-    if (config.restaurantChoices.length && !config.restaurantChoices.includes(choices.restaurantChoice)) throw new ApiError(400, 'invalid_restaurant_choice');
-    const guests = await ddb.send(new ScanCommand({
-      TableName: env.RSVP_TABLE,
-      FilterExpression: 'sk = :profile AND entityType = :guest AND enabled = :enabled',
-      ExpressionAttributeValues: { ':profile': 'PROFILE', ':guest': 'guest', ':enabled': true },
-    }));
-    const guest = (guests.Items || []).find((item) => {
-      try { return normalizeContactName(item.sender || '').lookup === normalizedSender.lookup; } catch { return false; }
-    });
-    if (!guest || guest.identityStatus === 'to_add') throw new ApiError(403, 'sender_not_authorized');
-    await ddb.send(new PutCommand({
-      TableName: env.RSVP_TABLE,
-      Item: { pk: `RSVP#${guest.guestId}`, sk: 'RESPONSE', entityType: 'rsvpResponse', guestId: guest.guestId, ...choices, updatedAt: now() },
-    }));
-    return emptyResponse(204);
+    const signedMessage = `contact=${encodeURIComponent(sender.display)}&nonce=${nonce}`;
+    const signature = createHmac('sha256', await getValidationSecret()).update(signedMessage, 'utf8').digest('base64url');
+    const whatsappUrl = new URL(`https://wa.me/${appNumber.slice(1)}`);
+    whatsappUrl.searchParams.set('text', `VALIDATION ${signedMessage}&sig=${signature}`);
+    return jsonResponse(200, { whatsappUrl: whatsappUrl.toString(), expiresAt }, { cookies: [await makeSignedCookie('rsvp_registration', { type: 'registration', nonce }, WHATSAPP_TTL_SECONDS)] });
   };
 
   const rsvpSummary = async () => {
@@ -685,14 +667,11 @@ export const createHandler = ({
   };
 
   const authStart = async (event) => {
-    await requireCaptchaGate(event);
+    await requireTriviaGate(event);
     const { guestId: requestedGuestId } = parseJsonBody(event);
     const guest = await getGuest(validGuestId(requestedGuestId));
-    if (guest.identityStatus === 'unconfirmed' || guest.nickname.endsWith(' — Por confirmar')) {
-      throw new ApiError(409, 'registration_required');
-    }
     const credentials = await getCredentials(guest.guestId);
-    if (credentials.length === 0) throw new ApiError(409, 'passkey_required');
+    if (credentials.length === 0) return jsonResponse(200, { mode: 'whatsapp-rsvp', ...(await rsvpConfig()) });
 
     const options = await webauthn.generateAuthenticationOptions({
       rpID: env.WEBAUTHN_RP_ID,
@@ -807,7 +786,8 @@ export const createHandler = ({
     try {
       await ddb.send(new TransactWriteCommand({ TransactItems: [
         { Update: { TableName: env.RSVP_TABLE, Key: key, UpdateExpression: 'SET #status = :created, approvedAt = :now', ConditionExpression: '#status = :pending AND expiresAt >= :now', ExpressionAttributeNames: { '#status': 'status' }, ExpressionAttributeValues: { ':created': 'created', ':pending': 'pending', ':now': now() } } },
-        { Update: { TableName: env.RSVP_TABLE, Key: { pk: `GUEST#${selectedGuest.guestId}`, sk: 'PROFILE' }, UpdateExpression: 'SET identityStatus = :confirmed, sender = :sender, updatedAt = :now', ConditionExpression: 'enabled = :enabled AND (identityStatus = :unconfirmed OR begins_with(nickname, :pendingPrefix))', ExpressionAttributeValues: { ':confirmed': 'confirmed', ':unconfirmed': 'unconfirmed', ':enabled': true, ':sender': decodedSender.display, ':pendingPrefix': selectedGuest.nickname.replace(/ — Por confirmar$/i, ''), ':now': now() } } },
+        { Update: { TableName: env.RSVP_TABLE, Key: { pk: `GUEST#${selectedGuest.guestId}`, sk: 'PROFILE' }, UpdateExpression: 'SET identityStatus = :confirmed, sender = :sender, updatedAt = :now', ConditionExpression: 'enabled = :enabled', ExpressionAttributeValues: { ':confirmed': 'confirmed', ':enabled': true, ':sender': decodedSender.display, ':now': now() } } },
+        ...(challenge.response ? [{ Put: { TableName: env.RSVP_TABLE, Item: { pk: `RSVP#${selectedGuest.guestId}`, sk: 'RESPONSE', entityType: 'rsvpResponse', guestId: selectedGuest.guestId, ...challenge.response, updatedAt: now() } } }] : []),
       ] }));
     } catch (error) {
       if (conditionalFailure(error)) throw new ApiError(409, 'registration_unavailable');
@@ -1011,7 +991,7 @@ export const createHandler = ({
     }
     if (path === '/api/rsvp' && method === 'GET') return getRsvp(event);
     if (path === '/api/rsvp' && method === 'PUT') return saveRsvp(event);
-    if (path === '/api/rsvp/whatsapp/config' && method === 'GET') return whatsappRsvpConfig(event);
+    if (path === '/api/rsvp/whatsapp/start' && method === 'POST') return startWhatsappRsvp(event);
     if (path === '/api/admin/settings' && method === 'GET') return adminSettings(event);
     if (path === '/api/admin/settings' && method === 'PUT') return saveAdminSettings(event);
     if (path === '/api/admin/groups' && method === 'GET') return adminGroups(event);
@@ -1019,7 +999,6 @@ export const createHandler = ({
     if (path === '/api/register/start' && method === 'POST') return startFriendRegistration(event);
     if (path === '/api/register/status' && method === 'GET') return registrationStatus(event);
     if (path === '/api/phone/register' && method === 'POST') return registerPhoneWebhook(event);
-    if (path === '/api/phone/rsvp' && method === 'POST') return saveWhatsappRsvp(event);
     if (path === '/api/auth/passkeys/register/options' && method === 'POST') return registrationOptions(event);
     if (path === '/api/auth/passkeys/register/verify' && method === 'POST') return registrationVerify(event);
     if (path === '/api/auth/passkeys/login/verify' && method === 'POST') return loginVerify(event);
