@@ -249,7 +249,7 @@ const showRegistrationWhatsapp = async (result) => {
         elements.whatsappPanel.hidden = true;
         elements.actions.hidden = false;
         elements.retryRegistration.hidden = true;
-        elements.status.textContent = 'Não consegui verificar o contacto. Verifica o nome ou se estás a usar o WhatsApp da conta certa.';
+        elements.status.textContent = 'Contacto whatsapp nao condiz com nome escolhido. Verifica o nome ou se estás a usar o WhatsApp da conta certa, ou pede para seres adicionado';
         return;
       }
       if (state.status === 'expired') { setWaiting(false); elements.status.textContent = 'Este registo expirou. Tente novamente.'; elements.whatsappPanel.hidden = true; elements.guestSection.hidden = false; return; }
