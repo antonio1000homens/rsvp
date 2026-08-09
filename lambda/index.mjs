@@ -987,7 +987,7 @@ export const createHandler = ({
       return response;
     }
     if (path === '/api/rsvp/summary' && method === 'GET') {
-      await requireCaptchaGate(event);
+      if (!(await readSessionGuest(event))) await requireCaptchaGate(event);
       return rsvpSummary();
     }
     if (path === '/api/rsvp' && method === 'GET') return getRsvp(event);
