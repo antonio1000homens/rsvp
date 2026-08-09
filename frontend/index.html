@@ -25,11 +25,6 @@
           <button id="skip-trivia" type="button" class="secondary">Não sei</button>
         </form>
         <p id="trivia-status" class="status" role="status" aria-live="polite"></p>
-        <div id="group-picker" hidden>
-          <label for="group-select">Grupo</label>
-          <select id="group-select"></select>
-        </div>
-        <div id="guest-list" class="guest-list" aria-live="polite"></div>
         <div id="validated-content" hidden>
           <section id="rsvp-summary" class="rsvp-summary" hidden aria-live="polite">
             <h2>Disponibilidade geral</h2>
@@ -37,9 +32,16 @@
             <div id="availability-chart" class="availability-chart"></div>
             <p id="rsvp-summary-preferences" class="status"></p>
           </section>
+          <p class="intro">Selecione o seu nome para enviar a resposta.</p>
+          <div id="group-picker" hidden>
+            <label for="group-select">Grupo</label>
+            <select id="group-select"></select>
+          </div>
+          <div id="guest-list" class="guest-list" aria-live="polite"></div>
           <hr>
-          <h2>Não encontro o meu nome</h2>
-          <p class="intro">Se calhar nao tenho o teu whatsapp</p>
+          <button id="toggle-new-contact" type="button" class="secondary">Não encontro o meu nome</button>
+          <div id="new-contact-panel" hidden>
+            <p class="intro">Se calhar não tenho o teu WhatsApp.</p>
           <p id="registration-status" class="status" role="status" aria-live="polite"></p>
           <form id="new-contact-form" hidden>
             <label for="new-contact-name">Nome</label>
@@ -49,6 +51,7 @@
           <div id="new-contact-qr" hidden>
             <p id="new-contact-message" class="status"></p>
             <canvas id="new-contact-qr-canvas" role="img" aria-label="Código QR para pedir adição como contacto"></canvas>
+          </div>
           </div>
         </div>
       </section>

@@ -48,6 +48,8 @@ const elements = {
   logout: document.querySelector('#logout'),
   registrationStatus: document.querySelector('#registration-status'),
   newContactForm: document.querySelector('#new-contact-form'),
+  toggleNewContact: document.querySelector('#toggle-new-contact'),
+  newContactPanel: document.querySelector('#new-contact-panel'),
   newContactQr: document.querySelector('#new-contact-qr'),
   newContactMessage: document.querySelector('#new-contact-message'),
   newContactQrCanvas: document.querySelector('#new-contact-qr-canvas'),
@@ -369,7 +371,7 @@ const answerTrivia = async (event) => {
   elements.triviaStatus.textContent = 'A validar a resposta…';
   try {
     await post('/api/trivia/answer', { challenge: triviaChallenge, answer: elements.triviaAnswer.value });
-    elements.triviaStatus.textContent = 'Resposta correta.';
+    elements.triviaStatus.textContent = '';
     await completeValidation();
   } catch (error) {
     elements.triviaStatus.textContent = error.code === 'trivia_incorrect'
@@ -402,7 +404,7 @@ const loadTurnstile = async () => {
       action: 'guest-directory',
       callback: async (token) => {
         triviaToken = token;
-        elements.captchaStatus.textContent = 'Verificação de segurança concluída.';
+        elements.captchaStatus.textContent = '';
         await loadTriviaQuestion(token);
         resolve();
       },
@@ -437,6 +439,12 @@ elements.logout.addEventListener('click', async () => {
 });
 elements.triviaForm.addEventListener('submit', answerTrivia);
 elements.skipTrivia.addEventListener('click', skipTrivia);
+elements.toggleNewContact.addEventListener('click', () => {
+  elements.newContactPanel.hidden = !elements.newContactPanel.hidden;
+  elements.toggleNewContact.textContent = elements.newContactPanel.hidden
+    ? 'Não encontro o meu nome'
+    : 'Esconder formulário';
+});
 elements.groupSelect.addEventListener('change', async () => {
   selectedGroup = elements.groupSelect.value;
   await loadGuests();
