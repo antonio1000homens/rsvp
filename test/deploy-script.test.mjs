@@ -11,14 +11,22 @@ test('deployment script uses the scoped artifact prefix and protects the stack',
   const lambdaOutput = new URL('../dist/lambda/', import.meta.url);
   await mkdir(lambdaOutput, { recursive: true });
   let previousLambda;
+  let previousWorker;
   try {
     previousLambda = await readFile(new URL('index.mjs', lambdaOutput));
   } catch {
     previousLambda = null;
   }
+  try {
+    previousWorker = await readFile(new URL('phone-worker.mjs', lambdaOutput));
+  } catch {
+    previousWorker = null;
+  }
   await writeFile(new URL('index.mjs', lambdaOutput), 'export const handler = async () => ({ statusCode: 200 });\n');
+  await writeFile(new URL('phone-worker.mjs', lambdaOutput), 'export const handler = async () => {};\n');
   t.after(async () => {
     if (previousLambda) await writeFile(new URL('index.mjs', lambdaOutput), previousLambda);
+    if (previousWorker) await writeFile(new URL('phone-worker.mjs', lambdaOutput), previousWorker);
   });
 
   const commands = {

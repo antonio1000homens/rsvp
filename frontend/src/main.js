@@ -21,6 +21,7 @@ const elements = {
   flowSection: document.querySelector('#flow-section'),
   selectedName: document.querySelector('#selected-name'),
   status: document.querySelector('#status'),
+  waitingIndicator: document.querySelector('#waiting-indicator'),
   whatsappPanel: document.querySelector('#whatsapp-panel'),
   qrCode: document.querySelector('#qr-code'),
   whatsappLink: document.querySelector('#whatsapp-link'),
@@ -61,6 +62,11 @@ let pollGeneration = 0;
 let triviaChallenge = '';
 let triviaToken = '';
 
+const setWaiting = (waiting) => {
+  elements.waitingIndicator.hidden = !waiting;
+  elements.status.setAttribute('aria-busy', String(waiting));
+};
+
 const api = async (path, options = {}) => {
   const response = await fetch(path, {
     credentials: 'same-origin',
@@ -82,6 +88,7 @@ const put = (path, payload = {}) => api(path, { method: 'PUT', body: JSON.string
 
 const showAuthenticated = (nickname) => {
   pollGeneration += 1;
+  setWaiting(false);
   elements.guestSection.hidden = true;
   elements.flowSection.hidden = true;
   elements.sessionSection.hidden = false;
@@ -91,17 +98,36 @@ const showAuthenticated = (nickname) => {
   loadAdmin();
 };
 
+const addNoAvailabilityOption = (container, noAvailability = false) => {
+  const dates = [...container.querySelectorAll('input[name="availableDays"]')];
+  const label = document.createElement('label');
+  const checkbox = document.createElement('input');
+  checkbox.type = 'checkbox'; checkbox.name = 'noAvailability'; checkbox.value = 'true';
+  checkbox.checked = noAvailability || !dates.some((date) => date.checked);
+  label.append(checkbox, ' Não posso em nenhuma data');
+  container.append(label);
+  const sync = () => {
+    if (dates.some((date) => date.checked)) checkbox.checked = false;
+    else checkbox.checked = true;
+  };
+  dates.forEach((date) => date.addEventListener('change', sync));
+  checkbox.addEventListener('change', () => {
+    if (checkbox.checked) dates.forEach((date) => { date.checked = false; });
+    sync();
+  });
+};
+
 const renderRsvpForm = ({ days, response }) => {
   elements.availabilityDays.replaceChildren();
   for (const day of days) {
     const label = document.createElement('label');
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox'; checkbox.name = 'availableDays'; checkbox.value = day;
-    if (elements.availabilityDays.children.length === 0) checkbox.required = true;
     checkbox.checked = response?.availableDays?.includes(day) || false;
     label.append(checkbox, ` ${day}`);
     elements.availabilityDays.append(label);
   }
+  addNoAvailabilityOption(elements.availabilityDays, response?.noAvailability === true);
   elements.rsvpForm.elements.guestCount.value = response?.guestCount || '';
   elements.rsvpForm.elements.preferenceType.value = response?.preferenceType || 'families';
   elements.restaurantChoice.replaceChildren();
@@ -114,7 +140,6 @@ const renderRsvpForm = ({ days, response }) => {
   for (const checkbox of elements.rsvpForm.querySelectorAll('input[name="mealTypes"]')) {
     checkbox.checked = response?.mealTypes?.includes(checkbox.value) || false;
   }
-  elements.rsvpForm.querySelector('input[name="mealTypes"]').required = true;
 };
 
 const renderWhatsappRsvpForm = ({ days, restaurantChoices }) => {
@@ -123,16 +148,17 @@ const renderWhatsappRsvpForm = ({ days, restaurantChoices }) => {
     const label = document.createElement('label');
     const checkbox = document.createElement('input');
     checkbox.type = 'checkbox'; checkbox.name = 'availableDays'; checkbox.value = day;
-    if (elements.whatsappAvailabilityDays.children.length === 0) checkbox.required = true;
     label.append(checkbox, ` ${day}`);
     elements.whatsappAvailabilityDays.append(label);
   }
+  addNoAvailabilityOption(elements.whatsappAvailabilityDays);
   elements.whatsappRestaurantChoice.replaceChildren();
   for (const choice of (restaurantChoices.length ? restaurantChoices : ['Por decidir'])) {
     elements.whatsappRestaurantChoice.add(new Option(choice, choice));
   }
-  elements.whatsappRsvpForm.querySelector('input[name="mealTypes"]').required = true;
 };
+
+const hasMealType = (form) => form.querySelector('input[name="mealTypes"]:checked') !== null;
 
 const openWhatsappRsvpForm = (config) => {
   renderWhatsappRsvpForm(config);
@@ -182,6 +208,7 @@ const loadRsvpSummary = async () => {
 };
 
 const showFlow = () => {
+  setWaiting(false);
   elements.guestSection.hidden = true;
   elements.sessionSection.hidden = true;
   elements.flowSection.hidden = false;
@@ -200,6 +227,7 @@ const showRegistrationWhatsapp = async (result) => {
   elements.whatsappRsvpForm.hidden = true;
   elements.selectedName.textContent = selectedGuest?.nickname || 'Registo';
   elements.status.textContent = 'A aguardar a verificação pelo WhatsApp…';
+  setWaiting(true);
   elements.whatsappPanel.hidden = false;
   elements.actions.hidden = true;
   elements.whatsappLink.href = result.whatsappUrl;
@@ -209,6 +237,7 @@ const showRegistrationWhatsapp = async (result) => {
     try {
       const state = await api('/api/register/status');
       if (state.status === 'created') {
+        setWaiting(false);
         elements.whatsappPanel.hidden = true;
         elements.status.textContent = 'Disponibilidade recebida. Quer criar uma chave de acesso para editar a resposta?';
         elements.actions.hidden = false;
@@ -216,14 +245,15 @@ const showRegistrationWhatsapp = async (result) => {
         return;
       }
       if (state.status === 'sender_mismatch') {
+        setWaiting(false);
         elements.whatsappPanel.hidden = true;
         elements.actions.hidden = false;
         elements.retryRegistration.hidden = true;
         elements.status.textContent = 'Não consegui verificar o contacto. Verifica o nome ou se estás a usar o WhatsApp da conta certa.';
         return;
       }
-      if (state.status === 'expired') { elements.status.textContent = 'Este registo expirou. Tente novamente.'; elements.whatsappPanel.hidden = true; elements.guestSection.hidden = false; return; }
-    } catch { elements.status.textContent = 'O estado da verificação está temporariamente indisponível; a tentar novamente…'; }
+      if (state.status === 'expired') { setWaiting(false); elements.status.textContent = 'Este registo expirou. Tente novamente.'; elements.whatsappPanel.hidden = true; elements.guestSection.hidden = false; return; }
+    } catch { setWaiting(false); elements.status.textContent = 'O estado da verificação está temporariamente indisponível. Tente novamente.'; return; }
     window.setTimeout(poll, document.hidden ? 10000 : 3000);
   };
   window.setTimeout(poll, 3000);
@@ -440,6 +470,7 @@ const loadTurnstile = async () => {
 
 elements.backButton.addEventListener('click', () => {
   pollGeneration += 1;
+  setWaiting(false);
   selectedGuest = null;
   elements.flowSection.hidden = true;
   elements.guestSection.hidden = false;
@@ -467,9 +498,14 @@ elements.groupSelect.addEventListener('change', async () => {
 });
 elements.rsvpForm.addEventListener('submit', async (event) => {
   event.preventDefault();
+  if (!hasMealType(elements.rsvpForm)) {
+    elements.sessionStatus.textContent = 'Seleciona pelo menos uma preferência: almoço, jantar ou copos.';
+    return;
+  }
   const form = new FormData(elements.rsvpForm);
   const payload = {
     availableDays: form.getAll('availableDays'),
+    noAvailability: form.get('noAvailability') === 'true',
     guestCount: Number(form.get('guestCount')),
     mealTypes: form.getAll('mealTypes'),
     restaurantChoice: form.get('restaurantChoice'),
@@ -484,9 +520,14 @@ elements.rsvpForm.addEventListener('submit', async (event) => {
 });
 elements.whatsappRsvpForm.addEventListener('submit', async (event) => {
   event.preventDefault();
+  if (!hasMealType(elements.whatsappRsvpForm)) {
+    elements.status.textContent = 'Seleciona pelo menos uma preferência: almoço, jantar ou copos.';
+    return;
+  }
   const form = new FormData(elements.whatsappRsvpForm);
   const payload = {
     availableDays: form.getAll('availableDays'), guestCount: Number(form.get('guestCount')),
+    noAvailability: form.get('noAvailability') === 'true',
     mealTypes: form.getAll('mealTypes'), restaurantChoice: form.get('restaurantChoice'), preferenceType: form.get('preferenceType'),
     dietaryRestrictions: form.get('dietaryRestrictions'),
   };

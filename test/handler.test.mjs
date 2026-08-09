@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { tokenHash } from '../shared/identity.mjs';
+import { processPhoneRegistration } from '../lambda/phone-registration.mjs';
 import {
   contentTypeFor,
   createHandler,
@@ -32,6 +33,7 @@ const env = {
   TURNSTILE_HOSTNAME: 'calcada2026.pt',
   SITE_BUCKET: 'rsvp-test-site',
   RSVP_TABLE: 'rsvp-test',
+  PHONE_QUEUE_URL: 'https://sqs.eu-west-2.amazonaws.com/123/rsvp-phone-registration',
   WEBAUTHN_RP_ID: 'calcada2026.pt',
   WEBAUTHN_EXPECTED_ORIGIN: 'https://calcada2026.pt',
   WEBAUTHN_RP_NAME: 'Calçada 2026 RSVP',
@@ -123,6 +125,10 @@ class FakeDdb {
         if (operation.Update) {
           const current = this.get(operation.Update.Key);
           const expressionValues = operation.Update.ExpressionAttributeValues;
+          if (expressionValues[':created']) {
+            current.status = expressionValues[':created'];
+            current.approvedAt = expressionValues[':now'];
+          }
           if (expressionValues[':used']) {
             current.status = 'used';
             current.usedAt = expressionValues[':now'];
@@ -188,10 +194,13 @@ const makeHandler = ({ objects = {}, items = [] } = {}) => {
   };
   const ssm = { send: async (command) => ({ Parameter: { Value: values[command.input.Name] || '' } }) };
   const ddb = new FakeDdb(items);
+  const queued = [];
+  const sqs = { send: async (command) => { queued.push(command.input); return { MessageId: 'queued-message' }; } };
   let randomCounter = 1;
   const handler = createHandler({
     s3,
     ssm,
+    sqs,
     ddb,
     webauthn,
     env,
@@ -199,7 +208,7 @@ const makeHandler = ({ objects = {}, items = [] } = {}) => {
     randomBytes: () => Buffer.alloc(32, randomCounter++),
     turnstileValidate: async () => ({ success: true, action: 'guest-directory', hostname: 'calcada2026.pt' }),
   });
-  return { handler, requests, ddb };
+  return { handler, requests, ddb, queued };
 };
 
 const guest = (overrides = {}) => ({
@@ -299,9 +308,9 @@ test('an authenticated guest can save RSVP choices and the trivia-gated summary 
   assert.doesNotMatch(serialized, /Vegetariano/);
 });
 
-test('the phone webhook saves the RSVP selected before WhatsApp validation', async () => {
+test('the phone webhook queues the Tasker payload for asynchronous validation', async () => {
   const profile = guest({ sender: 'António Costa', identityStatus: 'confirmed' });
-  const { handler, ddb } = makeHandler({ items: [profile] });
+  const { handler, queued } = makeHandler({ items: [profile] });
   const started = await handler(request('/api/rsvp/whatsapp/start', { method: 'POST', body: {
     guestId: profile.guestId,
     availableDays: ['19 December 2026'], guestCount: 2, mealTypes: ['dinner'],
@@ -313,8 +322,35 @@ test('the phone webhook saves the RSVP selected before WhatsApp validation', asy
     method: 'POST', cookies: [], headers: { authorization: 'Bearer phone-webhook-secret' },
     body: { sender: 'Antonio Costa', message },
   }));
-  assert.equal(response.statusCode, 204);
+  assert.equal(response.statusCode, 202);
+  assert.deepEqual(JSON.parse(queued[0].MessageBody), { sender: 'Antonio Costa', message });
+});
+
+test('the phone worker persists a queued, signed RSVP and acknowledges business failures', async () => {
+  const profile = guest({ sender: 'António Costa', identityStatus: 'confirmed' });
+  const { handler, ddb } = makeHandler({ items: [profile] });
+  const started = await handler(request('/api/rsvp/whatsapp/start', { method: 'POST', body: {
+    guestId: profile.guestId, availableDays: ['19 December 2026'], guestCount: 2,
+    mealTypes: ['dinner'], restaurantChoice: 'Por decidir', dietaryRestrictions: 'Vegetariano',
+  } }));
+  const message = new URL(JSON.parse(started.body).whatsappUrl).searchParams.get('text');
+  assert.equal(await processPhoneRegistration({ sender: 'Antonio Costa', message, ddb, tableName: env.RSVP_TABLE, validationSecret: values['/rsvp/validation-secret'], now: fixedNow }), 'created');
   assert.deepEqual(ddb.get({ pk: `RSVP#${profile.guestId}`, sk: 'RESPONSE' }).availableDays, ['19 December 2026']);
+  assert.equal(await processPhoneRegistration({ sender: 'Antonio Costa', message, ddb, tableName: env.RSVP_TABLE, validationSecret: values['/rsvp/validation-secret'], now: fixedNow }), 'registration_challenge_unavailable');
+});
+
+test('an RSVP can explicitly record no available dates', async () => {
+  const profile = guest();
+  const { handler } = makeHandler({ items: [profile] });
+  const session = signToken({ type: 'session', guestId: profile.guestId, sessionVersion: 1, exp: fixedNow + 600 }, values['/rsvp/session-secret']);
+  const response = await handler(request('/api/rsvp', {
+    method: 'PUT', cookies: [`rsvp_session=${session}`], body: {
+      availableDays: [], noAvailability: true, guestCount: 1, mealTypes: ['dinner'],
+      preferenceType: 'families', restaurantChoice: 'Por decidir', dietaryRestrictions: '',
+    },
+  }));
+  assert.equal(response.statusCode, 200);
+  assert.equal(JSON.parse(response.body).response.noAvailability, true);
 });
 
 test('only an admin session can manage restaurant choices', async () => {

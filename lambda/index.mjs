@@ -9,6 +9,7 @@ import {
   TransactWriteCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import { SendMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
 import { GetParameterCommand, SSMClient } from '@aws-sdk/client-ssm';
 import {
   generateAuthenticationOptions,
@@ -201,17 +202,18 @@ const availabilityDays = (env) => {
 
 const responseChoices = (body, days) => {
   const availableDays = Array.isArray(body.availableDays) ? [...new Set(body.availableDays.map(String))] : [];
+  const noAvailability = body.noAvailability === true || body.noAvailability === 'true' || body.noAvailability === 'on';
   const mealTypes = Array.isArray(body.mealTypes) ? [...new Set(body.mealTypes.map(String))] : [];
   const guestCount = Number(body.guestCount);
   const preferenceType = String(body.preferenceType || body.attendanceType || 'families');
   const dietaryRestrictions = String(body.dietaryRestrictions || '').trim();
   const restaurantChoice = String(body.restaurantChoice || '').trim().replace(/\s+/g, ' ');
-  if (!availableDays.length || !availableDays.every((day) => days.includes(day))) throw new ApiError(400, 'invalid_availability');
+  if (availableDays.some((day) => !days.includes(day)) || (!availableDays.length && !noAvailability)) throw new ApiError(400, 'invalid_availability');
   if (!mealTypes.length || !mealTypes.every((type) => ['lunch', 'dinner', 'drinks'].includes(type))) throw new ApiError(400, 'invalid_meal_types');
   if (!Number.isInteger(guestCount) || guestCount < 1 || guestCount > 12) throw new ApiError(400, 'invalid_guest_count');
   if (!['adults', 'plusOnes', 'families'].includes(preferenceType)) throw new ApiError(400, 'invalid_preference_type');
   if (dietaryRestrictions.length > 500 || restaurantChoice.length < 2 || restaurantChoice.length > 120) throw new ApiError(400, 'invalid_preferences');
-  return { availableDays, mealTypes, guestCount, preferenceType, dietaryRestrictions, restaurantChoice };
+  return { availableDays, noAvailability, mealTypes, guestCount, preferenceType, dietaryRestrictions, restaurantChoice };
 };
 
 const conditionalFailure = (error) =>
@@ -240,6 +242,7 @@ const validateTriviaQuestions = (raw) => {
 export const createHandler = ({
   s3 = new S3Client({}),
   ssm = new SSMClient({}),
+  sqs = new SQSClient({}),
   ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
     marshallOptions: { removeUndefinedValues: true },
   }),
@@ -545,7 +548,7 @@ export const createHandler = ({
     if (!guest) throw new ApiError(401, 'authentication_required');
     const response = await rsvpForGuest(guest.guestId);
     return jsonResponse(200, { ...(await rsvpConfig()), response: response ? {
-      availableDays: response.availableDays, mealTypes: response.mealTypes, guestCount: response.guestCount,
+      availableDays: response.availableDays, noAvailability: response.noAvailability === true, mealTypes: response.mealTypes, guestCount: response.guestCount,
       preferenceType: response.preferenceType || (response.attendanceType === 'adults' ? 'adults' : 'families'), dietaryRestrictions: response.dietaryRestrictions, restaurantChoice: response.restaurantChoice,
     } : null });
   };
@@ -753,49 +756,12 @@ export const createHandler = ({
     const providedSecret = authorization.startsWith('Bearer ') ? authorization.slice(7) : '';
     if (!safeEqual(providedSecret, expectedSecret)) throw new ApiError(401, 'unauthorized');
     const { sender, message } = parseJsonBody(event);
-    let normalizedSender;
-    try { normalizedSender = normalizeContactName(sender); } catch { throw new ApiError(400, 'invalid_sender'); }
-    const match = VALIDATION_MESSAGE.exec(String(message || ''));
-    if (!match) throw new ApiError(400, 'invalid_validation_message');
-    const [, encodedContact, nonce, signature] = match;
-    const validationSecret = await getValidationSecret();
-    if (!validationSecret) throw new ApiError(503, 'validation_unavailable');
-    const signedMessage = `contact=${encodedContact}&nonce=${nonce}`;
-    const expectedSignature = createHmac('sha256', validationSecret).update(signedMessage, 'utf8').digest('base64url');
-    if (!safeEqual(signature, expectedSignature)) throw new ApiError(400, 'invalid_validation_signature');
-    let decodedSender;
-    try { decodedSender = normalizeContactName(decodeURIComponent(encodedContact)); } catch { throw new ApiError(400, 'invalid_validation_message'); }
-    const key = { pk: `REGISTRATION#${tokenHash(nonce)}`, sk: 'CHALLENGE' };
-    const existing = await ddb.send(new GetCommand({ TableName: env.RSVP_TABLE, Key: key, ConsistentRead: true }));
-    const challenge = existing.Item;
-    if (!challenge || challenge.status !== 'pending' || challenge.expiresAt < now()) {
-      throw new ApiError(challenge?.status === 'created' ? 409 : 410, 'registration_challenge_unavailable');
-    }
-    if (challenge.senderLookup !== decodedSender.lookup || normalizedSender.lookup !== challenge.senderLookup) {
-      await ddb.send(new UpdateCommand({
-        TableName: env.RSVP_TABLE,
-        Key: key,
-        UpdateExpression: 'SET lastError = :error, lastErrorAt = :now REMOVE approvedAt',
-        ConditionExpression: '#status = :pending AND expiresAt >= :now',
-        ExpressionAttributeNames: { '#status': 'status' },
-        ExpressionAttributeValues: { ':error': 'sender_mismatch', ':pending': 'pending', ':now': now() },
-      }));
-      // The webhook was processed successfully. The mismatch is an expected
-      // business outcome, so Tasker must not treat it as an HTTP failure.
-      return emptyResponse(204);
-    }
-    const selectedGuest = await getGuest(challenge.guestId);
+    if (typeof sender !== 'string' || sender.length > 240 || typeof message !== 'string' || message.length > 4096) throw new ApiError(400, 'invalid_phone_message');
+    if (!env.PHONE_QUEUE_URL) throw new ApiError(503, 'phone_queue_unavailable');
     try {
-      await ddb.send(new TransactWriteCommand({ TransactItems: [
-        { Update: { TableName: env.RSVP_TABLE, Key: key, UpdateExpression: 'SET #status = :created, approvedAt = :now', ConditionExpression: '#status = :pending AND expiresAt >= :now', ExpressionAttributeNames: { '#status': 'status' }, ExpressionAttributeValues: { ':created': 'created', ':pending': 'pending', ':now': now() } } },
-        { Update: { TableName: env.RSVP_TABLE, Key: { pk: `GUEST#${selectedGuest.guestId}`, sk: 'PROFILE' }, UpdateExpression: 'SET identityStatus = :confirmed, sender = :sender, updatedAt = :now', ConditionExpression: 'enabled = :enabled', ExpressionAttributeValues: { ':confirmed': 'confirmed', ':enabled': true, ':sender': decodedSender.display, ':now': now() } } },
-        ...(challenge.response ? [{ Put: { TableName: env.RSVP_TABLE, Item: { pk: `RSVP#${selectedGuest.guestId}`, sk: 'RESPONSE', entityType: 'rsvpResponse', guestId: selectedGuest.guestId, ...challenge.response, updatedAt: now() } } }] : []),
-      ] }));
-    } catch (error) {
-      if (conditionalFailure(error)) throw new ApiError(409, 'registration_unavailable');
-      throw error;
-    }
-    return emptyResponse(204);
+      await sqs.send(new SendMessageCommand({ QueueUrl: env.PHONE_QUEUE_URL, MessageBody: JSON.stringify({ sender, message }) }));
+    } catch { throw new ApiError(503, 'phone_queue_unavailable'); }
+    return emptyResponse(202);
   };
 
   const registrationOptions = async (event) => {

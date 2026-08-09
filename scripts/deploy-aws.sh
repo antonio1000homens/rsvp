@@ -52,9 +52,10 @@ if [ ! -f "${ROOT_DIR}/dist/lambda/index.mjs" ]; then
 fi
 
 cp "${ROOT_DIR}/dist/lambda/index.mjs" "${TEMP_DIR}/index.mjs"
+cp "${ROOT_DIR}/dist/lambda/phone-worker.mjs" "${TEMP_DIR}/phone-worker.mjs"
 (
   cd "${TEMP_DIR}"
-  zip -q lambda.zip index.mjs
+  zip -q lambda.zip index.mjs phone-worker.mjs
 )
 
 if [ -n "${GITHUB_SHA:-}" ]; then

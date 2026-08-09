@@ -40,6 +40,8 @@ site_bucket="$(output_value SiteBucketName)"
 table_name="$(output_value TableName)"
 function_name="$(output_value FunctionName)"
 function_url="$(output_value FunctionUrl)"
+phone_queue_url="$(output_value PhoneRegistrationQueueUrl)"
+phone_processor_arn="$(output_value PhoneProcessorFunctionArn)"
 
 public_access="$(aws_cli s3api get-public-access-block --bucket "${site_bucket}" --query 'PublicAccessBlockConfiguration.[BlockPublicAcls,IgnorePublicAcls,BlockPublicPolicy,RestrictPublicBuckets]' --output text)"
 [ "${public_access}" = $'True\tTrue\tTrue\tTrue' ]
@@ -58,6 +60,20 @@ auth_config="$(aws_cli lambda get-function-configuration --function-name "${func
 
 concurrency="$(aws_cli lambda get-function-concurrency --function-name "${function_name}" --query 'ReservedConcurrentExecutions' --output text)"
 [ "${concurrency}" = '5' ]
+
+queue_config="$(aws_cli sqs get-queue-attributes --queue-url "${phone_queue_url}" --attribute-names SqsManagedSseEnabled RedrivePolicy --query 'Attributes.[SqsManagedSseEnabled,RedrivePolicy]' --output text)"
+case "${queue_config}" in True$'\t'*'maxReceiveCount'*) ;; *) echo "Unexpected phone queue configuration" >&2; exit 1 ;; esac
+
+processor_config="$(aws_cli lambda get-function-configuration --function-name "${phone_processor_arn}" --query '[Runtime,MemorySize,Timeout]' --output text)"
+[ "${processor_config}" = $'nodejs24.x\t256\t15' ]
+processor_concurrency="$(aws_cli lambda get-function-concurrency --function-name "${phone_processor_arn}" --query 'ReservedConcurrentExecutions' --output text)"
+[ "${processor_concurrency}" = '1' ]
+
+mapping_config="$(aws_cli lambda list-event-source-mappings --function-name "${phone_processor_arn}" --query 'EventSourceMappings[0].[BatchSize,ScalingConfig.MaximumConcurrency,State]' --output text)"
+[ "${mapping_config}" = $'1\t1\tEnabled' ]
+
+dlq_alarm="$(aws_cli cloudwatch describe-alarms --alarm-names rsvp-phone-registration-dlq-not-empty --query 'MetricAlarms[0].AlarmName' --output text)"
+[ "${dlq_alarm}" = 'rsvp-phone-registration-dlq-not-empty' ]
 
 retention="$(aws_cli logs describe-log-groups --log-group-name-prefix "/aws/lambda/${function_name}" --query 'logGroups[?logGroupName==`/aws/lambda/'"${function_name}"'`].retentionInDays | [0]' --output text)"
 [ "${retention}" = '7' ]

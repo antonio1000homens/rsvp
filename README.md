@@ -117,7 +117,7 @@ After CAPTCHA and, when enabled, trivia validation, the guest selects their exis
 
 The WhatsApp message is a signed one-time validation request associated with the selected guest and their completed response. Tasker verifies the WhatsApp sender is the expected contact, then forwards the sender and the exact message to `POST /api/phone/register`. The backend validates the signature, nonce, sender, and expiry before saving the response. The site then offers optional passkey creation, which lets the guest fetch and edit their answer later.
 
-The response also records the preference group: `18+`, `+1s`, or `Famílias`. Passkeys remain available as an optional way to return to and edit a saved response in the browser. Dietary restrictions are returned only to an authenticated passkey session; the post-trivia landing page shows anonymous aggregate availability, meal, and restaurant totals.
+The response also records the preference group: `18+`, `+1s`, or `Famílias`. Participant count defaults to one. Guests can select `Não posso em nenhuma data`; this is stored explicitly and removes the requirement to select a date. Passkeys remain available as an optional way to return to and edit a saved response in the browser. Dietary restrictions are returned only to an authenticated passkey session; the post-trivia landing page shows anonymous aggregate availability, meal, and restaurant totals.
 
 The availability labels are configured at deploy time. Use real dates or day names before production deployment:
 
@@ -179,7 +179,7 @@ The bootstrap creates `/rsvp/phone-webhook-secret` as a random SSM SecureString 
 AWS_PROFILE=windsor npm run whatsapp:copy-secret
 ```
 
-Paste it into the private Tasker configuration, then clear the clipboard. After explicitly approving the contact match, forward the complete `VALIDATION ...` message unchanged to `/api/phone/register` with the validated contact name as `sender`. The backend returns `204` after confirming the existing guest; replayed, expired, altered, or mismatched challenges are rejected.
+Paste it into the private Tasker configuration, then clear the clipboard. After explicitly approving the contact match, forward the complete `VALIDATION ...` message unchanged to `/api/phone/register` with the validated contact name as `sender`. The endpoint returns `202` once the message is accepted into the private RSVP queue. A dedicated worker then verifies and stores it; the browser shows a waiting indicator and polls the registration status until processing finishes. Tasker should retry only network or 5xx failures, never a `202` response.
 
 
 Rotate a compromised phone webhook secret with:

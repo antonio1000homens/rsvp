@@ -62,6 +62,7 @@
         <button id="back-button" class="text-button" type="button">← Escolher outro nome</button>
         <h2 id="selected-name"></h2>
         <p id="status" class="status" role="status" aria-live="polite"></p>
+        <div id="waiting-indicator" class="waiting-indicator" role="status" aria-label="A aguardar validação" hidden><span aria-hidden="true"></span> A aguardar validação…</div>
 
         <div id="whatsapp-panel" class="whatsapp-panel" hidden>
           <p>Leia este código QR com o telefone que utiliza o seu número WhatsApp autorizado.</p>
@@ -73,7 +74,7 @@
         <form id="whatsapp-rsvp-form" class="rsvp-form" hidden>
           <h3>Indica a tua disponibilidade</h3>
           <fieldset><legend>Em que dias podes?</legend><div id="whatsapp-availability-days" class="choice-grid"></div></fieldset>
-          <label for="whatsapp-guest-count">Quantas pessoas, incluindo-te?</label><input id="whatsapp-guest-count" name="guestCount" type="number" min="1" max="12" required>
+          <label for="whatsapp-guest-count">Quantas pessoas, incluindo-te?</label><input id="whatsapp-guest-count" name="guestCount" type="number" min="1" max="12" value="1" required>
           <label for="whatsapp-preference-type">Preferência</label><select id="whatsapp-preference-type" name="preferenceType" required><option value="adults">18+</option><option value="plusOnes">+1s</option><option value="families">Famílias</option></select>
           <fieldset><legend>O que preferes?</legend><div class="choice-grid"><label><input type="checkbox" name="mealTypes" value="lunch"> Almoço</label><label><input type="checkbox" name="mealTypes" value="dinner"> Jantar</label><label><input type="checkbox" name="mealTypes" value="drinks"> Copos</label></div></fieldset>
           <label for="whatsapp-restaurant-choice">Restaurante preferido</label><select id="whatsapp-restaurant-choice" name="restaurantChoice" required></select>
@@ -95,7 +96,7 @@
             <div id="availability-days" class="choice-grid"></div>
           </fieldset>
           <label for="guest-count">Quantas pessoas, incluindo-te?</label>
-          <input id="guest-count" name="guestCount" type="number" min="1" max="12" required>
+          <input id="guest-count" name="guestCount" type="number" min="1" max="12" value="1" required>
           <label for="preference-type">Preferência</label>
           <select id="preference-type" name="preferenceType" required><option value="adults">18+</option><option value="plusOnes">+1s</option><option value="families">Famílias</option></select>
           <fieldset>

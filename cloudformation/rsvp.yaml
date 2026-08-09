@@ -17,6 +17,9 @@ Parameters:
   FunctionName:
     Type: String
     Default: rsvp-app
+  PhoneProcessorFunctionName:
+    Type: String
+    Default: rsvp-phone-processor
   OriginSecretParameter:
     Type: String
     Default: /rsvp/origin-secret
@@ -123,6 +126,40 @@ Resources:
         - Key: Application
           Value: rsvp
 
+  PhoneRegistrationDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: rsvp-phone-registration-dlq
+      SqsManagedSseEnabled: true
+      MessageRetentionPeriod: 1209600
+
+  PhoneRegistrationQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: rsvp-phone-registration
+      SqsManagedSseEnabled: true
+      VisibilityTimeout: 60
+      MessageRetentionPeriod: 86400
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt PhoneRegistrationDlq.Arn
+        maxReceiveCount: 5
+
+  PhoneRegistrationDlqAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: rsvp-phone-registration-dlq-not-empty
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt PhoneRegistrationDlq.QueueName
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
   RsvpFunctionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -172,6 +209,10 @@ Resources:
                   - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${ValidationSecretParameter}
                   - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${TurnstileSiteKeyParameter}
                   - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${TurnstileSecretParameter}
+              - Sid: EnqueuePhoneRegistrations
+                Effect: Allow
+                Action: sqs:SendMessage
+                Resource: !GetAtt PhoneRegistrationQueue.Arn
               - Sid: WriteFunctionLogs
                 Effect: Allow
                 Action:
@@ -210,11 +251,75 @@ Resources:
           WEBAUTHN_EXPECTED_ORIGIN: !Ref WebauthnExpectedOrigin
           WEBAUTHN_RP_NAME: Calçada 2026 RSVP
           RSVP_DAYS: !Join [',', !Ref AvailabilityDays]
+          PHONE_QUEUE_URL: !Ref PhoneRegistrationQueue
       Tags:
         - Key: Application
           Value: rsvp
         - Key: ManagedBy
           Value: CloudFormation
+
+  PhoneProcessorLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${PhoneProcessorFunctionName}
+      RetentionInDays: 7
+
+  PhoneProcessorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ProcessPhoneRegistrations
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [sqs:ReceiveMessage, sqs:DeleteMessage, sqs:GetQueueAttributes, sqs:ChangeMessageVisibility]
+                Resource: !GetAtt PhoneRegistrationQueue.Arn
+              - Effect: Allow
+                Action: [dynamodb:GetItem, dynamodb:PutItem, dynamodb:TransactWriteItems, dynamodb:UpdateItem]
+                Resource: !GetAtt RsvpTable.Arn
+              - Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${ValidationSecretParameter}
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !GetAtt PhoneProcessorLogGroup.Arn
+
+  PhoneProcessorFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: PhoneProcessorLogGroup
+    Properties:
+      FunctionName: !Ref PhoneProcessorFunctionName
+      Runtime: nodejs24.x
+      Architectures: [arm64]
+      Handler: phone-worker.handler
+      Role: !GetAtt PhoneProcessorRole.Arn
+      Timeout: 15
+      MemorySize: 256
+      ReservedConcurrentExecutions: 1
+      Code:
+        S3Bucket: !Ref CodeBucket
+        S3Key: !Ref FunctionCodeKey
+      Environment:
+        Variables:
+          RSVP_TABLE: !Ref RsvpTable
+          VALIDATION_SECRET_PARAMETER: !Ref ValidationSecretParameter
+
+  PhoneProcessorEventSource:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      EventSourceArn: !GetAtt PhoneRegistrationQueue.Arn
+      FunctionName: !Ref PhoneProcessorFunction
+      BatchSize: 1
+      ScalingConfig:
+        MaximumConcurrency: 1
 
   RsvpFunctionUrl:
     Type: AWS::Lambda::Url
@@ -257,3 +362,7 @@ Outputs:
     Value: !GetAtt RsvpFunctionUrl.FunctionUrl
   FunctionRoleArn:
     Value: !GetAtt RsvpFunctionRole.Arn
+  PhoneRegistrationQueueUrl:
+    Value: !Ref PhoneRegistrationQueue
+  PhoneProcessorFunctionArn:
+    Value: !GetAtt PhoneProcessorFunction.Arn
