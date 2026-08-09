@@ -28,14 +28,6 @@
         </form>
         <p id="trivia-status" class="status" role="status" aria-live="polite"></p>
         <div id="validated-content" hidden>
-          <section id="rsvp-summary" class="rsvp-summary" hidden aria-live="polite">
-            <h2>Disponibilidade geral</h2>
-            <p id="rsvp-summary-total" class="intro"></p>
-            <div id="availability-chart" class="availability-chart"></div>
-            <h3>Propostas de restaurante</h3>
-            <div id="restaurant-votes" class="availability-chart"></div>
-            <p id="rsvp-summary-preferences" class="status"></p>
-          </section>
           <p class="intro">Selecione o seu nome para enviar a resposta.</p>
           <div id="group-picker" hidden>
             <label for="group-select">Grupo</label>
@@ -81,6 +73,8 @@
           <label for="whatsapp-preference-type">Preferência</label><select id="whatsapp-preference-type" name="preferenceType" required><option value="adults">18+</option><option value="plusOnes">+1s</option><option value="families">Famílias</option></select>
           <fieldset><legend>O que preferes?</legend><div class="choice-grid"><label><input type="checkbox" name="mealTypes" value="lunch"> Almoço</label><label><input type="checkbox" name="mealTypes" value="dinner"> Jantar</label><label><input type="checkbox" name="mealTypes" value="drinks"> Copos</label></div></fieldset>
           <fieldset><legend>Restaurantes propostos (podes escolher mais do que um)</legend><div id="whatsapp-restaurant-choices" class="choice-grid"></div></fieldset>
+          <label for="whatsapp-proposed-restaurants">Outros restaurantes que propões (um por linha)</label>
+          <textarea id="whatsapp-proposed-restaurants" name="proposedRestaurantChoices" maxlength="600" placeholder="Nome do restaurante"></textarea>
           <label for="whatsapp-dietary-restrictions">Restrições alimentares</label><textarea id="whatsapp-dietary-restrictions" name="dietaryRestrictions" maxlength="500" placeholder="Nenhuma"></textarea>
           <button type="submit">Continuar para WhatsApp</button>
         </form>
@@ -93,6 +87,16 @@
 
       <section id="session-section" hidden>
         <p class="intro">Sessão iniciada como <strong id="session-name"></strong>.</p>
+        <section id="rsvp-summary" class="rsvp-summary" hidden aria-live="polite">
+          <h2>Estado actual das respostas</h2>
+          <p id="rsvp-summary-total" class="intro"></p>
+          <div id="availability-chart" class="availability-chart"></div>
+          <h3>Propostas de restaurante</h3>
+          <div id="restaurant-votes" class="availability-chart"></div>
+          <p id="rsvp-summary-preferences" class="status"></p>
+        </section>
+        <details class="collapsible">
+          <summary>Editar a minha resposta</summary>
         <form id="rsvp-form" class="rsvp-form">
           <fieldset>
             <legend>Em que dias podes?</legend>
@@ -111,11 +115,15 @@
             </div>
           </fieldset>
           <fieldset><legend>Restaurantes propostos (podes escolher mais do que um)</legend><div id="restaurant-choices" class="choice-grid"></div></fieldset>
+          <label for="proposed-restaurants">Outros restaurantes que propões (um por linha)</label>
+          <textarea id="proposed-restaurants" name="proposedRestaurantChoices" maxlength="600" placeholder="Nome do restaurante"></textarea>
           <label for="dietary-restrictions">Restrições alimentares</label>
           <textarea id="dietary-restrictions" name="dietaryRestrictions" maxlength="500" placeholder="Nenhuma"></textarea>
           <button type="submit">Guardar disponibilidade</button>
         </form>
-        <section id="admin-section" class="admin-section" hidden>
+        </details>
+        <details id="admin-section" class="admin-section collapsible" hidden>
+          <summary>Administração do evento</summary>
           <h2>Administração do evento</h2>
           <p id="admin-dates" class="intro"></p>
           <form id="admin-settings-form" class="rsvp-form">
@@ -129,7 +137,7 @@
             <button type="submit">Guardar definições do evento</button>
           </form>
           <p id="admin-groups" class="status"></p>
-        </section>
+        </details>
         <div class="actions">
           <button id="add-passkey" type="button">Adicionar outra chave de acesso</button>
           <button id="logout" class="secondary" type="button">Terminar sessão</button>

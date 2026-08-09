@@ -52,6 +52,10 @@ h2 { margin: 1rem 0 0; font-size: 1.8rem; }
 
 .rsvp-summary { margin-top: 2rem; }
 .rsvp-summary h2 { font-size: 1.45rem; }
+.vote-names { grid-column: 1 / -1; margin: -0.2rem 0 0.4rem; color: #76513a; }
+.collapsible { margin-top: 1.5rem; }
+.collapsible summary { cursor: pointer; color: #513521; font-weight: 700; }
+.collapsible[open] summary { margin-bottom: 1rem; }
 .availability-chart { display: grid; gap: 0.5rem; }
 .availability-row { display: grid; grid-template-columns: minmax(6rem, 1fr) 2fr; align-items: center; gap: 0.75rem; color: #695b50; font-size: 0.9rem; }
 .availability-bar { min-height: 1.8rem; display: grid; place-items: center; width: var(--availability); min-width: 2rem; border-radius: 0.35rem; background: #8a5838; color: #fff; font-weight: 700; transition: width 150ms ease-out; }

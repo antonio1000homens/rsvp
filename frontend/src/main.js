@@ -99,6 +99,7 @@ const showAuthenticated = (nickname, message = '', passkeyLabel = 'Adicionar out
   elements.addPasskey.textContent = passkeyLabel;
   loadRsvpForm();
   loadAdmin();
+  loadRsvpSummary();
 };
 
 const addNoAvailabilityOption = (container, noAvailability = false) => {
@@ -148,6 +149,7 @@ const renderRsvpForm = ({ days, restaurantChoices, response }) => {
   elements.rsvpForm.elements.guestCount.value = response?.guestCount || '';
   elements.rsvpForm.elements.preferenceType.value = response?.preferenceType || 'families';
   renderRestaurantChoices(elements.restaurantChoices, restaurantChoices || [], response?.restaurantChoices || []);
+  elements.rsvpForm.elements.proposedRestaurantChoices.value = (response?.proposedRestaurantChoices || []).join('\n');
   elements.rsvpForm.elements.dietaryRestrictions.value = response?.dietaryRestrictions || '';
   for (const checkbox of elements.rsvpForm.querySelectorAll('input[name="mealTypes"]')) {
     checkbox.checked = response?.mealTypes?.includes(checkbox.value) || false;
@@ -218,6 +220,11 @@ const loadRsvpSummary = async () => {
       const label = document.createElement('span'); label.textContent = name;
       const bar = document.createElement('span'); bar.className = 'availability-bar'; bar.style.setProperty('--availability', `${((restaurantCounts[name] || 0) / maximumRestaurant) * 100}%`); bar.textContent = `${restaurantCounts[name] || 0}`;
       row.append(label, bar); elements.restaurantVotes.append(row);
+      const voters = (summary.restaurantVoters || {})[name] || [];
+      const voterNames = document.createElement('small');
+      voterNames.className = 'vote-names';
+      voterNames.textContent = voters.length ? voters.map(({ nickname, guestCount }) => guestCount > 1 ? `${nickname} (${guestCount})` : nickname).join(', ') : 'Ainda sem votos';
+      elements.restaurantVotes.append(voterNames);
     }
     elements.rsvpSummaryTotal.textContent = `${summary.guests} pessoa(s) em ${summary.responses} resposta(s).`;
     const meals = Object.entries(summary.byMeal).filter(([, count]) => count).map(([meal, count]) => `${meal}: ${count}`).join(' · ');
@@ -448,7 +455,7 @@ const completeValidation = async () => {
   elements.triviaStatus.hidden = true;
   elements.validatedContent.hidden = false;
   elements.newContactForm.hidden = false;
-  await Promise.all([loadGroups(), loadRsvpSummary()]);
+  await loadGroups();
 };
 
 const answerTrivia = async (event) => {
@@ -547,6 +554,7 @@ elements.rsvpForm.addEventListener('submit', async (event) => {
     guestCount: Number(form.get('guestCount')),
     mealTypes: form.getAll('mealTypes'),
     restaurantChoices: form.getAll('restaurantChoices'),
+    proposedRestaurantChoices: form.get('proposedRestaurantChoices').split(/\r?\n/).map((choice) => choice.trim()).filter(Boolean),
     preferenceType: form.get('preferenceType'),
     dietaryRestrictions: form.get('dietaryRestrictions'),
   };
@@ -567,6 +575,7 @@ elements.whatsappRsvpForm.addEventListener('submit', async (event) => {
     availableDays: form.getAll('availableDays'), guestCount: Number(form.get('guestCount')),
     noAvailability: form.get('noAvailability') === 'true',
     mealTypes: form.getAll('mealTypes'), restaurantChoices: form.getAll('restaurantChoices'), preferenceType: form.get('preferenceType'),
+    proposedRestaurantChoices: form.get('proposedRestaurantChoices').split(/\r?\n/).map((choice) => choice.trim()).filter(Boolean),
     dietaryRestrictions: form.get('dietaryRestrictions'),
   };
   try {

@@ -211,18 +211,24 @@ const responseChoices = (body, days) => {
     .filter((choice) => choice !== undefined && choice !== null)
     .map((choice) => String(choice).trim().replace(/\s+/g, ' '))
     .filter(Boolean))];
+  const proposedRestaurantChoices = [...new Set((Array.isArray(body.proposedRestaurantChoices) ? body.proposedRestaurantChoices : [body.proposedRestaurantChoice])
+    .filter((choice) => choice !== undefined && choice !== null)
+    .map((choice) => String(choice).trim().replace(/\s+/g, ' '))
+    .filter(Boolean))];
   if (availableDays.some((day) => !days.includes(day)) || (!availableDays.length && !noAvailability)) throw new ApiError(400, 'invalid_availability');
   if (!mealTypes.length || !mealTypes.every((type) => ['lunch', 'dinner', 'drinks'].includes(type))) throw new ApiError(400, 'invalid_meal_types');
   if (!Number.isInteger(guestCount) || guestCount < 1 || guestCount > 12) throw new ApiError(400, 'invalid_guest_count');
   if (!['adults', 'plusOnes', 'families'].includes(preferenceType)) throw new ApiError(400, 'invalid_preference_type');
-  if (dietaryRestrictions.length > 500 || !restaurantChoices.length || restaurantChoices.length > 20 || restaurantChoices.some((choice) => choice.length < 2 || choice.length > 120)) throw new ApiError(400, 'invalid_preferences');
-  return { availableDays, noAvailability, mealTypes, guestCount, preferenceType, dietaryRestrictions, restaurantChoices };
+  if (dietaryRestrictions.length > 500 || (!restaurantChoices.length && !proposedRestaurantChoices.length) || restaurantChoices.length > 20 || proposedRestaurantChoices.length > 5 || [...restaurantChoices, ...proposedRestaurantChoices].some((choice) => choice.length < 2 || choice.length > 120)) throw new ApiError(400, 'invalid_preferences');
+  return { availableDays, noAvailability, mealTypes, guestCount, preferenceType, dietaryRestrictions, restaurantChoices, proposedRestaurantChoices };
 };
 
 const storedRestaurantChoices = (response) => {
   if (Array.isArray(response?.restaurantChoices)) return response.restaurantChoices;
   return response?.restaurantChoice ? [response.restaurantChoice] : [];
 };
+
+const storedProposedRestaurantChoices = (response) => Array.isArray(response?.proposedRestaurantChoices) ? response.proposedRestaurantChoices : [];
 
 const validateRestaurantChoices = (choices, configuredChoices) => {
   if (configuredChoices.length && choices.some((choice) => !configuredChoices.includes(choice))) throw new ApiError(400, 'invalid_restaurant_choice');
@@ -561,6 +567,7 @@ export const createHandler = ({
     return jsonResponse(200, { ...(await rsvpConfig()), response: response ? {
       availableDays: response.availableDays, noAvailability: response.noAvailability === true, mealTypes: response.mealTypes, guestCount: response.guestCount,
       preferenceType: response.preferenceType || (response.attendanceType === 'adults' ? 'adults' : 'families'), dietaryRestrictions: response.dietaryRestrictions, restaurantChoices: storedRestaurantChoices(response),
+      proposedRestaurantChoices: storedProposedRestaurantChoices(response),
     } : null });
   };
 
@@ -605,22 +612,36 @@ export const createHandler = ({
       TableName: env.RSVP_TABLE,
       FilterExpression: 'entityType = :response',
       ExpressionAttributeValues: { ':response': 'rsvpResponse' },
-      ProjectionExpression: 'availableDays, mealTypes, guestCount, restaurantChoices, restaurantChoice',
+      ProjectionExpression: 'guestId, availableDays, mealTypes, guestCount, restaurantChoices, restaurantChoice',
     }));
     const responses = result.Items || [];
+    const profilesResult = await ddb.send(new ScanCommand({
+      TableName: env.RSVP_TABLE,
+      FilterExpression: 'sk = :profile AND entityType = :guest AND enabled = :enabled',
+      ExpressionAttributeValues: { ':profile': 'PROFILE', ':guest': 'guest', ':enabled': true },
+      ProjectionExpression: 'guestId, nickname',
+    }));
+    const nicknames = new Map((profilesResult.Items || []).map((profile) => [profile.guestId, String(profile.nickname || '').replace(/ — Por confirmar$/, '')]));
     const byDay = Object.fromEntries(days.map((day) => [day, 0]));
     const byMeal = { lunch: 0, dinner: 0, drinks: 0 };
-    const restaurants = Object.fromEntries(configuredRestaurants.map((restaurant) => [restaurant, 0]));
+    const restaurantNames = [...configuredRestaurants];
+    for (const response of responses) for (const restaurant of storedProposedRestaurantChoices(response)) if (!restaurantNames.includes(restaurant)) restaurantNames.push(restaurant);
+    const restaurants = Object.fromEntries(restaurantNames.map((restaurant) => [restaurant, 0]));
+    const restaurantVoters = Object.fromEntries(restaurantNames.map((restaurant) => [restaurant, []]));
     let guests = 0;
     for (const response of responses) {
       guests += Number(response.guestCount || 0);
       for (const day of response.availableDays || []) if (day in byDay) byDay[day] += Number(response.guestCount || 0);
       for (const meal of response.mealTypes || []) if (meal in byMeal) byMeal[meal] += Number(response.guestCount || 0);
-      for (const restaurant of storedRestaurantChoices(response)) {
+      for (const restaurant of [...storedRestaurantChoices(response), ...storedProposedRestaurantChoices(response)]) {
         restaurants[restaurant] = (restaurants[restaurant] || 0) + Number(response.guestCount || 0);
+        const nickname = nicknames.get(response.guestId);
+        if (nickname && !restaurantVoters[restaurant]?.some((voter) => voter.nickname === nickname)) {
+          (restaurantVoters[restaurant] ||= []).push({ nickname, guestCount: Number(response.guestCount || 0) });
+        }
       }
     }
-    return jsonResponse(200, { responses: responses.length, guests, byDay, byMeal, restaurantChoices: configuredRestaurants, restaurants });
+    return jsonResponse(200, { responses: responses.length, guests, byDay, byMeal, restaurantChoices: restaurantNames, restaurants, restaurantVoters });
   };
 
   const adminSettings = async (event) => {
