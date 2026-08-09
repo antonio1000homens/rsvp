@@ -209,6 +209,11 @@ const loadRsvpSummary = async () => {
       const label = document.createElement('span'); label.textContent = day;
       const bar = document.createElement('span'); bar.className = 'availability-bar'; bar.style.setProperty('--availability', `${(count / maximum) * 100}%`); bar.textContent = `${count}`;
       row.append(label, bar); elements.availabilityChart.append(row);
+      const voterNames = document.createElement('small');
+      voterNames.className = 'vote-names';
+      const voters = (summary.dayVoters || {})[day] || [];
+      voterNames.textContent = voters.length ? voters.map(({ nickname, guestCount }) => guestCount > 1 ? `${nickname} (${guestCount})` : nickname).join(', ') : 'Ainda sem respostas';
+      elements.availabilityChart.append(voterNames);
     }
     const restaurantCounts = summary.restaurants || {};
     const restaurantNames = summary.restaurantChoices?.length ? summary.restaurantChoices : Object.keys(restaurantCounts);
@@ -227,8 +232,13 @@ const loadRsvpSummary = async () => {
       elements.restaurantVotes.append(voterNames);
     }
     elements.rsvpSummaryTotal.textContent = `${summary.guests} pessoa(s) em ${summary.responses} resposta(s).`;
-    const meals = Object.entries(summary.byMeal).filter(([, count]) => count).map(([meal, count]) => `${meal}: ${count}`).join(' · ');
-    elements.rsvpSummaryPreferences.textContent = meals;
+    const mealLabels = { lunch: 'Almoço', dinner: 'Jantar', drinks: 'Copos' };
+    const meals = Object.entries(summary.byMeal).filter(([, count]) => count).map(([meal, count]) => {
+      const voters = (summary.mealVoters || {})[meal] || [];
+      const names = voters.map(({ nickname, guestCount }) => guestCount > 1 ? `${nickname} (${guestCount})` : nickname).join(', ') || 'sem nomes';
+      return `${mealLabels[meal] || meal}: ${count} — ${names}`;
+    }).join(' · ');
+    elements.rsvpSummaryPreferences.textContent = meals || 'Ainda sem preferências registadas.';
     elements.rsvpSummary.hidden = false;
   } catch { elements.rsvpSummary.hidden = true; }
 };

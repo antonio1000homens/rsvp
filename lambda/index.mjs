@@ -630,6 +630,8 @@ export const createHandler = ({
     const nicknames = new Map((profilesResult.Items || []).map((profile) => [profile.guestId, String(profile.nickname || '').replace(/ — Por confirmar$/, '')]));
     const byDay = Object.fromEntries(days.map((day) => [day, 0]));
     const byMeal = { lunch: 0, dinner: 0, drinks: 0 };
+    const dayVoters = Object.fromEntries(days.map((day) => [day, []]));
+    const mealVoters = Object.fromEntries(Object.keys(byMeal).map((meal) => [meal, []]));
     const restaurantNames = [...configuredRestaurants];
     for (const response of responses) for (const restaurant of storedProposedRestaurantChoices(response)) if (!restaurantNames.includes(restaurant)) restaurantNames.push(restaurant);
     const restaurants = Object.fromEntries(restaurantNames.map((restaurant) => [restaurant, 0]));
@@ -637,8 +639,16 @@ export const createHandler = ({
     let guests = 0;
     for (const response of responses) {
       guests += Number(response.guestCount || 0);
-      for (const day of response.availableDays || []) if (day in byDay) byDay[day] += Number(response.guestCount || 0);
-      for (const meal of response.mealTypes || []) if (meal in byMeal) byMeal[meal] += Number(response.guestCount || 0);
+      const guestCount = Number(response.guestCount || 0);
+      const nickname = nicknames.get(response.guestId);
+      for (const day of response.availableDays || []) if (day in byDay) {
+        byDay[day] += guestCount;
+        if (nickname && !dayVoters[day].some((voter) => voter.nickname === nickname)) dayVoters[day].push({ nickname, guestCount });
+      }
+      for (const meal of response.mealTypes || []) if (meal in byMeal) {
+        byMeal[meal] += guestCount;
+        if (nickname && !mealVoters[meal].some((voter) => voter.nickname === nickname)) mealVoters[meal].push({ nickname, guestCount });
+      }
       for (const restaurant of [...storedRestaurantChoices(response), ...storedProposedRestaurantChoices(response)]) {
         restaurants[restaurant] = (restaurants[restaurant] || 0) + Number(response.guestCount || 0);
         const nickname = nicknames.get(response.guestId);
@@ -647,7 +657,7 @@ export const createHandler = ({
         }
       }
     }
-    return jsonResponse(200, { responses: responses.length, guests, byDay, byMeal, restaurantChoices: restaurantNames, restaurants, restaurantVoters });
+    return jsonResponse(200, { responses: responses.length, guests, byDay, byMeal, dayVoters, mealVoters, restaurantChoices: restaurantNames, restaurants, restaurantVoters });
   };
 
   const adminSettings = async (event) => {
