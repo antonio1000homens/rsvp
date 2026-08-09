@@ -16,6 +16,7 @@ const elements = {
   triviaForm: document.querySelector('#trivia-form'),
   triviaQuestion: document.querySelector('#trivia-question'),
   triviaAnswer: document.querySelector('#trivia-answer'),
+  skipTrivia: document.querySelector('#skip-trivia'),
   triviaStatus: document.querySelector('#trivia-status'),
   flowSection: document.querySelector('#flow-section'),
   selectedName: document.querySelector('#selected-name'),
@@ -337,6 +338,8 @@ const loadGroups = async () => {
 
 const loadTriviaQuestion = async (turnstileToken) => {
   try {
+    elements.triviaStatus.textContent = '';
+    elements.triviaAnswer.value = '';
     const result = await api('/api/trivia/question', {
       headers: { 'x-turnstile-token': turnstileToken },
     });
@@ -370,17 +373,15 @@ const answerTrivia = async (event) => {
     await completeValidation();
   } catch (error) {
     elements.triviaStatus.textContent = error.code === 'trivia_incorrect'
-      ? 'Resposta incorreta.'
+      ? 'Resposta incorreta. Tenta novamente ou escolhe “Não sei”.'
       : 'Não foi possível validar a resposta. Tente novamente.';
-    if (error.code === 'trivia_incorrect') {
-      elements.triviaStatus.textContent += ' Podes passar à pergunta seguinte.';
-      const next = document.createElement('button');
-      next.type = 'button';
-      next.textContent = 'Passar à pergunta seguinte';
-      next.onclick = () => { next.remove(); elements.triviaStatus.textContent = ''; loadTriviaQuestion(triviaToken); };
-      elements.triviaStatus.append(' ', next);
-    }
   }
+};
+
+const skipTrivia = async () => {
+  elements.skipTrivia.disabled = true;
+  await loadTriviaQuestion(triviaToken);
+  elements.skipTrivia.disabled = false;
 };
 
 const loadTurnstile = async () => {
@@ -435,6 +436,7 @@ elements.logout.addEventListener('click', async () => {
   await loadGroups();
 });
 elements.triviaForm.addEventListener('submit', answerTrivia);
+elements.skipTrivia.addEventListener('click', skipTrivia);
 elements.groupSelect.addEventListener('change', async () => {
   selectedGroup = elements.groupSelect.value;
   await loadGuests();
