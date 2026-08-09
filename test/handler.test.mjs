@@ -289,22 +289,26 @@ test('groups filter the guest directory through independent many-to-many members
 });
 
 test('an authenticated guest can save RSVP choices and the trivia-gated summary is aggregate-only', async () => {
-  const { handler } = makeHandler({ items: [guest()] });
+  const restaurantSettings = { pk: 'EVENT#DEFAULT', sk: 'SETTINGS', entityType: 'eventSettings', restaurantChoices: ['Tasquinha', 'O Pátio'] };
+  const { handler } = makeHandler({ items: [guest(), restaurantSettings] });
   const session = signToken({ type: 'session', guestId: guest().guestId, sessionVersion: 1, exp: fixedNow + 600 }, values['/rsvp/session-secret']);
   const response = await handler(request('/api/rsvp', {
     method: 'PUT',
     cookies: [`rsvp_session=${session}`],
     body: {
       availableDays: ['19 December 2026', '21 December 2026'], guestCount: 2, mealTypes: ['dinner', 'drinks'],
-      restaurantChoice: 'Tasquinha', dietaryRestrictions: 'Vegetariano',
+      restaurantChoices: ['Tasquinha', 'O Pátio'], dietaryRestrictions: 'Vegetariano',
     },
   }));
   assert.equal(response.statusCode, 200);
   const own = await handler(request('/api/rsvp', { cookies: [`rsvp_session=${session}`] }));
   assert.equal(JSON.parse(own.body).response.dietaryRestrictions, 'Vegetariano');
+  assert.deepEqual(JSON.parse(own.body).response.restaurantChoices, ['Tasquinha', 'O Pátio']);
   const summary = await handler(request('/api/rsvp/summary'));
   const serialized = summary.body;
   assert.deepEqual(JSON.parse(serialized).byDay, { '19 December 2026': 2, '20 December 2026': 0, '21 December 2026': 2, '22 December 2026': 0, '23 December 2026': 0 });
+  assert.deepEqual(JSON.parse(serialized).restaurantChoices, ['Tasquinha', 'O Pátio']);
+  assert.deepEqual(JSON.parse(serialized).restaurants, { Tasquinha: 2, 'O Pátio': 2 });
   assert.doesNotMatch(serialized, /Vegetariano/);
 });
 
@@ -337,6 +341,39 @@ test('the phone worker persists a queued, signed RSVP and acknowledges business 
   assert.equal(await processPhoneRegistration({ sender: 'Antonio Costa', message, ddb, tableName: env.RSVP_TABLE, validationSecret: values['/rsvp/validation-secret'], now: fixedNow }), 'created');
   assert.deepEqual(ddb.get({ pk: `RSVP#${profile.guestId}`, sk: 'RESPONSE' }).availableDays, ['19 December 2026']);
   assert.equal(await processPhoneRegistration({ sender: 'Antonio Costa', message, ddb, tableName: env.RSVP_TABLE, validationSecret: values['/rsvp/validation-secret'], now: fixedNow }), 'registration_challenge_unavailable');
+});
+
+test('a guest with an existing RSVP can retrieve it through WhatsApp without changing the Tasker payload', async () => {
+  const profile = guest({ sender: 'António Costa', identityStatus: 'confirmed' });
+  const response = { pk: `RSVP#${profile.guestId}`, sk: 'RESPONSE', entityType: 'rsvpResponse', guestId: profile.guestId, availableDays: ['19 December 2026'], guestCount: 2, mealTypes: ['dinner'], restaurantChoices: ['Por decidir'], dietaryRestrictions: 'Vegetariano' };
+  const { handler, ddb } = makeHandler({ items: [profile, response] });
+  const started = await handler(request('/api/auth/start', { method: 'POST', body: { guestId: profile.guestId } }));
+  assert.equal(started.statusCode, 200);
+  assert.equal(JSON.parse(started.body).mode, 'whatsapp-retrieve');
+  const retrieval = await handler(request('/api/rsvp/whatsapp/start', { method: 'POST', body: { guestId: profile.guestId, mode: 'retrieve' } }));
+  assert.equal(retrieval.statusCode, 200);
+  assert.equal(JSON.parse(retrieval.body).mode, 'retrieve');
+  const registrationCookie = cookieFrom(retrieval, 'rsvp_registration');
+  const message = new URL(JSON.parse(retrieval.body).whatsappUrl).searchParams.get('text');
+  assert.equal(await processPhoneRegistration({ sender: 'Antonio Costa', message, ddb, tableName: env.RSVP_TABLE, validationSecret: values['/rsvp/validation-secret'], now: fixedNow }), 'created');
+  const retrieved = await handler(request('/api/rsvp', { cookies: [registrationCookie] }));
+  assert.equal(retrieved.statusCode, 200);
+  assert.deepEqual(JSON.parse(retrieved.body).response.restaurantChoices, ['Por decidir']);
+  assert.equal(ddb.get({ pk: `RSVP#${profile.guestId}`, sk: 'RESPONSE' }).updatedAt, undefined);
+});
+
+test('a guest with a passkey can retrieve the existing RSVP after passkey login', async () => {
+  const profile = guest({ sender: 'António Costa', identityStatus: 'confirmed' });
+  const credential = { pk: `GUEST#${profile.guestId}`, sk: 'CREDENTIAL#credential-one', entityType: 'passkey', credentialId: 'credential-one', publicKey: Buffer.from([1, 2, 3]).toString('base64url'), counter: 0, transports: ['internal'] };
+  const response = { pk: `RSVP#${profile.guestId}`, sk: 'RESPONSE', entityType: 'rsvpResponse', guestId: profile.guestId, availableDays: ['19 December 2026'], guestCount: 1, mealTypes: ['dinner'], restaurantChoices: ['Por decidir'] };
+  const { handler } = makeHandler({ items: [profile, credential, response] });
+  const started = await handler(request('/api/auth/start', { method: 'POST', body: { guestId: profile.guestId } }));
+  assert.equal(JSON.parse(started.body).mode, 'passkey');
+  const loggedIn = await handler(request('/api/auth/passkeys/login/verify', { method: 'POST', cookies: [cookieFrom(started, 'rsvp_webauthn')], body: { credential: { id: 'credential-one' } } }));
+  const sessionCookie = cookieFrom(loggedIn, 'rsvp_session');
+  const retrieved = await handler(request('/api/rsvp', { cookies: [sessionCookie] }));
+  assert.equal(retrieved.statusCode, 200);
+  assert.deepEqual(JSON.parse(retrieved.body).response.availableDays, ['19 December 2026']);
 });
 
 test('an RSVP can explicitly record no available dates', async () => {

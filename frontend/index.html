@@ -32,6 +32,8 @@
             <h2>Disponibilidade geral</h2>
             <p id="rsvp-summary-total" class="intro"></p>
             <div id="availability-chart" class="availability-chart"></div>
+            <h3>Propostas de restaurante</h3>
+            <div id="restaurant-votes" class="availability-chart"></div>
             <p id="rsvp-summary-preferences" class="status"></p>
           </section>
           <p class="intro">Selecione o seu nome para enviar a resposta.</p>
@@ -53,6 +55,7 @@
           <div id="new-contact-qr" hidden>
             <p id="new-contact-message" class="status"></p>
             <canvas id="new-contact-qr-canvas" role="img" aria-label="Código QR para pedir adição como contacto"></canvas>
+            <a id="new-contact-whatsapp-link" class="primary-link" rel="noreferrer">Abrir o WhatsApp neste dispositivo</a>
           </div>
           </div>
         </div>
@@ -77,7 +80,7 @@
           <label for="whatsapp-guest-count">Quantas pessoas, incluindo-te?</label><input id="whatsapp-guest-count" name="guestCount" type="number" min="1" max="12" value="1" required>
           <label for="whatsapp-preference-type">Preferência</label><select id="whatsapp-preference-type" name="preferenceType" required><option value="adults">18+</option><option value="plusOnes">+1s</option><option value="families">Famílias</option></select>
           <fieldset><legend>O que preferes?</legend><div class="choice-grid"><label><input type="checkbox" name="mealTypes" value="lunch"> Almoço</label><label><input type="checkbox" name="mealTypes" value="dinner"> Jantar</label><label><input type="checkbox" name="mealTypes" value="drinks"> Copos</label></div></fieldset>
-          <label for="whatsapp-restaurant-choice">Restaurante preferido</label><select id="whatsapp-restaurant-choice" name="restaurantChoice" required></select>
+          <fieldset><legend>Restaurantes propostos (podes escolher mais do que um)</legend><div id="whatsapp-restaurant-choices" class="choice-grid"></div></fieldset>
           <label for="whatsapp-dietary-restrictions">Restrições alimentares</label><textarea id="whatsapp-dietary-restrictions" name="dietaryRestrictions" maxlength="500" placeholder="Nenhuma"></textarea>
           <button type="submit">Continuar para WhatsApp</button>
         </form>
@@ -107,8 +110,7 @@
               <label><input type="checkbox" name="mealTypes" value="drinks"> Copos</label>
             </div>
           </fieldset>
-          <label for="restaurant-choice">Restaurante preferido</label>
-          <select id="restaurant-choice" name="restaurantChoice" required></select>
+          <fieldset><legend>Restaurantes propostos (podes escolher mais do que um)</legend><div id="restaurant-choices" class="choice-grid"></div></fieldset>
           <label for="dietary-restrictions">Restrições alimentares</label>
           <textarea id="dietary-restrictions" name="dietaryRestrictions" maxlength="500" placeholder="Nenhuma"></textarea>
           <button type="submit">Guardar disponibilidade</button>
@@ -117,8 +119,9 @@
           <h2>Administração do evento</h2>
           <p id="admin-dates" class="intro"></p>
           <form id="admin-settings-form" class="rsvp-form">
-            <label for="admin-restaurants">Restaurantes (um por linha)</label>
+            <label for="admin-restaurants">Propostas de restaurante (uma por linha)</label>
             <textarea id="admin-restaurants" name="restaurants" maxlength="2400" placeholder="Nome do restaurante"></textarea>
+            <p class="fine-print">Adicione ou remova propostas; cada linha aparece como uma opção selecionável no formulário.</p>
             <label for="admin-trivia">Perguntas de validação</label>
             <textarea id="admin-trivia" name="trivia" maxlength="6000" placeholder="Pergunta | resposta aceite, outra resposta"></textarea>
             <p class="fine-print">Uma pergunta por linha. Separe a pergunta das respostas com <code>|</code>; respostas alternativas são separadas por vírgulas.</p>

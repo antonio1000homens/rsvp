@@ -10,6 +10,7 @@ const elements = {
   rsvpSummary: document.querySelector('#rsvp-summary'),
   rsvpSummaryTotal: document.querySelector('#rsvp-summary-total'),
   availabilityChart: document.querySelector('#availability-chart'),
+  restaurantVotes: document.querySelector('#restaurant-votes'),
   rsvpSummaryPreferences: document.querySelector('#rsvp-summary-preferences'),
   captcha: document.querySelector('#captcha'),
   captchaStatus: document.querySelector('#captcha-status'),
@@ -32,7 +33,7 @@ const elements = {
   sessionSection: document.querySelector('#session-section'),
   sessionName: document.querySelector('#session-name'),
   sessionStatus: document.querySelector('#session-status'),
-  restaurantChoice: document.querySelector('#restaurant-choice'),
+  restaurantChoices: document.querySelector('#restaurant-choices'),
   adminSection: document.querySelector('#admin-section'),
   adminDates: document.querySelector('#admin-dates'),
   adminSettingsForm: document.querySelector('#admin-settings-form'),
@@ -43,7 +44,7 @@ const elements = {
   rsvpForm: document.querySelector('#rsvp-form'),
   whatsappRsvpForm: document.querySelector('#whatsapp-rsvp-form'),
   whatsappAvailabilityDays: document.querySelector('#whatsapp-availability-days'),
-  whatsappRestaurantChoice: document.querySelector('#whatsapp-restaurant-choice'),
+  whatsappRestaurantChoices: document.querySelector('#whatsapp-restaurant-choices'),
   availabilityDays: document.querySelector('#availability-days'),
   addPasskey: document.querySelector('#add-passkey'),
   logout: document.querySelector('#logout'),
@@ -54,6 +55,7 @@ const elements = {
   newContactQr: document.querySelector('#new-contact-qr'),
   newContactMessage: document.querySelector('#new-contact-message'),
   newContactQrCanvas: document.querySelector('#new-contact-qr-canvas'),
+  newContactWhatsappLink: document.querySelector('#new-contact-whatsapp-link'),
 };
 
 let selectedGuest = null;
@@ -86,14 +88,15 @@ const api = async (path, options = {}) => {
 const post = (path, payload = {}) => api(path, { method: 'POST', body: JSON.stringify(payload) });
 const put = (path, payload = {}) => api(path, { method: 'PUT', body: JSON.stringify(payload) });
 
-const showAuthenticated = (nickname) => {
+const showAuthenticated = (nickname, message = '', passkeyLabel = 'Adicionar outra chave de acesso') => {
   pollGeneration += 1;
   setWaiting(false);
   elements.guestSection.hidden = true;
   elements.flowSection.hidden = true;
   elements.sessionSection.hidden = false;
   elements.sessionName.textContent = nickname;
-  elements.sessionStatus.textContent = '';
+  elements.sessionStatus.textContent = message;
+  elements.addPasskey.textContent = passkeyLabel;
   loadRsvpForm();
   loadAdmin();
 };
@@ -117,7 +120,21 @@ const addNoAvailabilityOption = (container, noAvailability = false) => {
   });
 };
 
-const renderRsvpForm = ({ days, response }) => {
+const renderRestaurantChoices = (container, choices, selectedChoices = []) => {
+  container.replaceChildren();
+  const options = choices.length ? choices : ['Por decidir'];
+  const selected = selectedChoices.length ? new Set(selectedChoices) : new Set([options[0]]);
+  for (const choice of options) {
+    const label = document.createElement('label');
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox'; checkbox.name = 'restaurantChoices'; checkbox.value = choice;
+    checkbox.checked = selected.has(choice);
+    label.append(checkbox, ` ${choice}`);
+    container.append(label);
+  }
+};
+
+const renderRsvpForm = ({ days, restaurantChoices, response }) => {
   elements.availabilityDays.replaceChildren();
   for (const day of days) {
     const label = document.createElement('label');
@@ -130,12 +147,7 @@ const renderRsvpForm = ({ days, response }) => {
   addNoAvailabilityOption(elements.availabilityDays, response?.noAvailability === true);
   elements.rsvpForm.elements.guestCount.value = response?.guestCount || '';
   elements.rsvpForm.elements.preferenceType.value = response?.preferenceType || 'families';
-  elements.restaurantChoice.replaceChildren();
-  const restaurantChoices = response?.restaurantChoices || [];
-  const choices = restaurantChoices.length ? restaurantChoices : ['Por decidir'];
-  for (const choice of choices) elements.restaurantChoice.add(new Option(choice, choice));
-  if (response?.restaurantChoice && !choices.includes(response.restaurantChoice)) elements.restaurantChoice.add(new Option(response.restaurantChoice, response.restaurantChoice));
-  elements.rsvpForm.elements.restaurantChoice.value = response?.restaurantChoice || choices[0];
+  renderRestaurantChoices(elements.restaurantChoices, restaurantChoices || [], response?.restaurantChoices || []);
   elements.rsvpForm.elements.dietaryRestrictions.value = response?.dietaryRestrictions || '';
   for (const checkbox of elements.rsvpForm.querySelectorAll('input[name="mealTypes"]')) {
     checkbox.checked = response?.mealTypes?.includes(checkbox.value) || false;
@@ -152,10 +164,7 @@ const renderWhatsappRsvpForm = ({ days, restaurantChoices }) => {
     elements.whatsappAvailabilityDays.append(label);
   }
   addNoAvailabilityOption(elements.whatsappAvailabilityDays);
-  elements.whatsappRestaurantChoice.replaceChildren();
-  for (const choice of (restaurantChoices.length ? restaurantChoices : ['Por decidir'])) {
-    elements.whatsappRestaurantChoice.add(new Option(choice, choice));
-  }
+  renderRestaurantChoices(elements.whatsappRestaurantChoices, restaurantChoices);
 };
 
 const hasMealType = (form) => form.querySelector('input[name="mealTypes"]:checked') !== null;
@@ -168,7 +177,7 @@ const openWhatsappRsvpForm = (config) => {
 const loadRsvpForm = async () => {
   try {
     const data = await api('/api/rsvp');
-    renderRsvpForm({ ...data, response: data.response ? { ...data.response, restaurantChoices: data.restaurantChoices } : { restaurantChoices: data.restaurantChoices } });
+    renderRsvpForm(data);
   } catch { elements.sessionStatus.textContent = 'Não foi possível carregar o RSVP.'; }
 };
 
@@ -199,10 +208,20 @@ const loadRsvpSummary = async () => {
       const bar = document.createElement('span'); bar.className = 'availability-bar'; bar.style.setProperty('--availability', `${(count / maximum) * 100}%`); bar.textContent = `${count}`;
       row.append(label, bar); elements.availabilityChart.append(row);
     }
+    const restaurantCounts = summary.restaurants || {};
+    const restaurantNames = summary.restaurantChoices?.length ? summary.restaurantChoices : Object.keys(restaurantCounts);
+    const maximumRestaurant = Math.max(1, ...restaurantNames.map((name) => restaurantCounts[name] || 0));
+    elements.restaurantVotes.replaceChildren();
+    for (const name of restaurantNames) {
+      const row = document.createElement('div');
+      row.className = 'availability-row';
+      const label = document.createElement('span'); label.textContent = name;
+      const bar = document.createElement('span'); bar.className = 'availability-bar'; bar.style.setProperty('--availability', `${((restaurantCounts[name] || 0) / maximumRestaurant) * 100}%`); bar.textContent = `${restaurantCounts[name] || 0}`;
+      row.append(label, bar); elements.restaurantVotes.append(row);
+    }
     elements.rsvpSummaryTotal.textContent = `${summary.guests} pessoa(s) em ${summary.responses} resposta(s).`;
     const meals = Object.entries(summary.byMeal).filter(([, count]) => count).map(([meal, count]) => `${meal}: ${count}`).join(' · ');
-    const restaurants = Object.entries(summary.restaurants).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([name, count]) => `${name}: ${count}`).join(' · ');
-    elements.rsvpSummaryPreferences.textContent = [meals, restaurants].filter(Boolean).join(' — ');
+    elements.rsvpSummaryPreferences.textContent = meals;
     elements.rsvpSummary.hidden = false;
   } catch { elements.rsvpSummary.hidden = true; }
 };
@@ -253,6 +272,10 @@ const showRegistrationWhatsapp = async (result) => {
       if (state.status === 'created') {
         setWaiting(false);
         elements.whatsappPanel.hidden = true;
+        if (result.mode === 'retrieve') {
+          showAuthenticated(selectedGuest?.nickname || 'Registo', 'Já tinhas enviado uma resposta. As tuas escolhas foram carregadas; podes revê-las ou editá-las. Cria uma chave de acesso para voltares mais facilmente.', 'Criar uma chave de acesso');
+          return;
+        }
         elements.status.textContent = 'Disponibilidade recebida. Quer criar uma chave de acesso para editar a resposta?';
         elements.actions.hidden = false;
         elements.createPasskey.hidden = false;
@@ -272,10 +295,12 @@ const showRegistrationWhatsapp = async (result) => {
   window.setTimeout(poll, 3000);
 };
 
-const startGuestRegistration = async () => {
+const startGuestRegistration = async (mode = 'register') => {
   elements.registrationStatus.textContent = 'A preparar a verificação pelo WhatsApp…';
   try {
-    await showRegistrationWhatsapp(await post('/api/register/start', { guestId: selectedGuest.id }));
+    await showRegistrationWhatsapp(await post('/api/rsvp/whatsapp/start', mode === 'retrieve'
+      ? { guestId: selectedGuest.id, mode }
+      : { guestId: selectedGuest.id }));
   } catch (error) { elements.registrationStatus.textContent = readableError(error); }
 };
 
@@ -337,6 +362,10 @@ const selectGuest = async (guest) => {
     if (result.mode === 'whatsapp-rsvp') {
       elements.status.textContent = 'Preencha a disponibilidade para continuar.';
       openWhatsappRsvpForm(result);
+    }
+    if (result.mode === 'whatsapp-retrieve') {
+      elements.status.textContent = 'Já existe uma resposta para este nome. Confirma o teu WhatsApp para carregar as escolhas anteriores.';
+      await startGuestRegistration('retrieve');
     }
   } catch (error) {
     elements.status.textContent = readableError(error);
@@ -517,7 +546,7 @@ elements.rsvpForm.addEventListener('submit', async (event) => {
     noAvailability: form.get('noAvailability') === 'true',
     guestCount: Number(form.get('guestCount')),
     mealTypes: form.getAll('mealTypes'),
-    restaurantChoice: form.get('restaurantChoice'),
+    restaurantChoices: form.getAll('restaurantChoices'),
     preferenceType: form.get('preferenceType'),
     dietaryRestrictions: form.get('dietaryRestrictions'),
   };
@@ -537,7 +566,7 @@ elements.whatsappRsvpForm.addEventListener('submit', async (event) => {
   const payload = {
     availableDays: form.getAll('availableDays'), guestCount: Number(form.get('guestCount')),
     noAvailability: form.get('noAvailability') === 'true',
-    mealTypes: form.getAll('mealTypes'), restaurantChoice: form.get('restaurantChoice'), preferenceType: form.get('preferenceType'),
+    mealTypes: form.getAll('mealTypes'), restaurantChoices: form.getAll('restaurantChoices'), preferenceType: form.get('preferenceType'),
     dietaryRestrictions: form.get('dietaryRestrictions'),
   };
   try {
@@ -567,6 +596,7 @@ elements.newContactForm.addEventListener('submit', async (event) => {
     elements.newContactForm.hidden = true;
     elements.newContactQr.hidden = false;
     elements.newContactMessage.textContent = 'Pedido criado como “para adicionar”. Envia esta mensagem para o Antonio.';
+    elements.newContactWhatsappLink.href = result.whatsappUrl;
     await QRCode.toCanvas(elements.newContactQrCanvas, result.whatsappUrl, { width: 228, margin: 1 });
   } catch (error) { elements.registrationStatus.textContent = readableError(error); }
 });

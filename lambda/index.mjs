@@ -207,13 +207,25 @@ const responseChoices = (body, days) => {
   const guestCount = Number(body.guestCount);
   const preferenceType = String(body.preferenceType || body.attendanceType || 'families');
   const dietaryRestrictions = String(body.dietaryRestrictions || '').trim();
-  const restaurantChoice = String(body.restaurantChoice || '').trim().replace(/\s+/g, ' ');
+  const restaurantChoices = [...new Set((Array.isArray(body.restaurantChoices) ? body.restaurantChoices : [body.restaurantChoice])
+    .filter((choice) => choice !== undefined && choice !== null)
+    .map((choice) => String(choice).trim().replace(/\s+/g, ' '))
+    .filter(Boolean))];
   if (availableDays.some((day) => !days.includes(day)) || (!availableDays.length && !noAvailability)) throw new ApiError(400, 'invalid_availability');
   if (!mealTypes.length || !mealTypes.every((type) => ['lunch', 'dinner', 'drinks'].includes(type))) throw new ApiError(400, 'invalid_meal_types');
   if (!Number.isInteger(guestCount) || guestCount < 1 || guestCount > 12) throw new ApiError(400, 'invalid_guest_count');
   if (!['adults', 'plusOnes', 'families'].includes(preferenceType)) throw new ApiError(400, 'invalid_preference_type');
-  if (dietaryRestrictions.length > 500 || restaurantChoice.length < 2 || restaurantChoice.length > 120) throw new ApiError(400, 'invalid_preferences');
-  return { availableDays, noAvailability, mealTypes, guestCount, preferenceType, dietaryRestrictions, restaurantChoice };
+  if (dietaryRestrictions.length > 500 || !restaurantChoices.length || restaurantChoices.length > 20 || restaurantChoices.some((choice) => choice.length < 2 || choice.length > 120)) throw new ApiError(400, 'invalid_preferences');
+  return { availableDays, noAvailability, mealTypes, guestCount, preferenceType, dietaryRestrictions, restaurantChoices };
+};
+
+const storedRestaurantChoices = (response) => {
+  if (Array.isArray(response?.restaurantChoices)) return response.restaurantChoices;
+  return response?.restaurantChoice ? [response.restaurantChoice] : [];
+};
+
+const validateRestaurantChoices = (choices, configuredChoices) => {
+  if (configuredChoices.length && choices.some((choice) => !configuredChoices.includes(choice))) throw new ApiError(400, 'invalid_restaurant_choice');
 };
 
 const conditionalFailure = (error) =>
@@ -544,21 +556,19 @@ export const createHandler = ({
   };
 
   const getRsvp = async (event) => {
-    const guest = await readSessionGuest(event);
-    if (!guest) throw new ApiError(401, 'authentication_required');
+    const guest = await authorizedRegistrationGuest(event);
     const response = await rsvpForGuest(guest.guestId);
     return jsonResponse(200, { ...(await rsvpConfig()), response: response ? {
       availableDays: response.availableDays, noAvailability: response.noAvailability === true, mealTypes: response.mealTypes, guestCount: response.guestCount,
-      preferenceType: response.preferenceType || (response.attendanceType === 'adults' ? 'adults' : 'families'), dietaryRestrictions: response.dietaryRestrictions, restaurantChoice: response.restaurantChoice,
+      preferenceType: response.preferenceType || (response.attendanceType === 'adults' ? 'adults' : 'families'), dietaryRestrictions: response.dietaryRestrictions, restaurantChoices: storedRestaurantChoices(response),
     } : null });
   };
 
   const saveRsvp = async (event) => {
-    const guest = await readSessionGuest(event);
-    if (!guest) throw new ApiError(401, 'authentication_required');
+    const guest = await authorizedRegistrationGuest(event);
     const config = await rsvpConfig();
     const choices = responseChoices(parseJsonBody(event), config.days);
-    if (config.restaurantChoices.length && !config.restaurantChoices.includes(choices.restaurantChoice)) throw new ApiError(400, 'invalid_restaurant_choice');
+    validateRestaurantChoices(choices.restaurantChoices, config.restaurantChoices);
     await ddb.send(new PutCommand({
       TableName: env.RSVP_TABLE,
       Item: { pk: `RSVP#${guest.guestId}`, sk: 'RESPONSE', entityType: 'rsvpResponse', guestId: guest.guestId, ...choices, updatedAt: now() },
@@ -571,41 +581,46 @@ export const createHandler = ({
     const body = parseJsonBody(event);
     const guest = await getGuest(validGuestId(body.guestId));
     const config = await rsvpConfig();
-    const response = responseChoices(body, config.days);
-    if (config.restaurantChoices.length && !config.restaurantChoices.includes(response.restaurantChoice)) throw new ApiError(400, 'invalid_restaurant_choice');
+    const retrieval = body.mode === 'retrieve';
+    const existingResponse = retrieval ? await rsvpForGuest(guest.guestId) : null;
+    if (retrieval && !existingResponse) throw new ApiError(409, 'registration_required');
+    const response = retrieval ? null : responseChoices(body, config.days);
+    if (response) validateRestaurantChoices(response.restaurantChoices, config.restaurantChoices);
     const sender = normalizeContactName(guest.sender || guest.nickname);
     const nonce = toBase64Url(randomBytes(32));
     const expiresAt = now() + WHATSAPP_TTL_SECONDS;
-    await ddb.send(new PutCommand({ TableName: env.RSVP_TABLE, Item: { pk: `REGISTRATION#${tokenHash(nonce)}`, sk: 'CHALLENGE', entityType: 'registrationChallenge', guestId: guest.guestId, sender: sender.display, senderLookup: sender.lookup, response, status: 'pending', expiresAt, createdAt: now() }, ConditionExpression: 'attribute_not_exists(pk)' }));
+    await ddb.send(new PutCommand({ TableName: env.RSVP_TABLE, Item: { pk: `REGISTRATION#${tokenHash(nonce)}`, sk: 'CHALLENGE', entityType: 'registrationChallenge', guestId: guest.guestId, sender: sender.display, senderLookup: sender.lookup, ...(response ? { response } : {}), purpose: retrieval ? 'retrieve' : 'register', status: 'pending', expiresAt, createdAt: now() }, ConditionExpression: 'attribute_not_exists(pk)' }));
     let appNumber;
     try { appNumber = normalizeE164(await getWhatsappNumber()); } catch { throw new ApiError(503, 'whatsapp_unavailable'); }
     const signedMessage = `contact=${encodeURIComponent(sender.display)}&nonce=${nonce}`;
     const signature = createHmac('sha256', await getValidationSecret()).update(signedMessage, 'utf8').digest('base64url');
     const whatsappUrl = new URL(`https://wa.me/${appNumber.slice(1)}`);
     whatsappUrl.searchParams.set('text', `VALIDATION ${signedMessage}&sig=${signature}`);
-    return jsonResponse(200, { whatsappUrl: whatsappUrl.toString(), expiresAt }, { cookies: [await makeSignedCookie('rsvp_registration', { type: 'registration', nonce }, WHATSAPP_TTL_SECONDS)] });
+    return jsonResponse(200, { mode: retrieval ? 'retrieve' : 'register', whatsappUrl: whatsappUrl.toString(), expiresAt }, { cookies: [await makeSignedCookie('rsvp_registration', { type: 'registration', nonce }, WHATSAPP_TTL_SECONDS)] });
   };
 
   const rsvpSummary = async () => {
-    const { days } = await rsvpConfig();
+    const { days, restaurantChoices: configuredRestaurants } = await rsvpConfig();
     const result = await ddb.send(new ScanCommand({
       TableName: env.RSVP_TABLE,
       FilterExpression: 'entityType = :response',
       ExpressionAttributeValues: { ':response': 'rsvpResponse' },
-      ProjectionExpression: 'availableDays, mealTypes, guestCount, restaurantChoice',
+      ProjectionExpression: 'availableDays, mealTypes, guestCount, restaurantChoices, restaurantChoice',
     }));
     const responses = result.Items || [];
     const byDay = Object.fromEntries(days.map((day) => [day, 0]));
     const byMeal = { lunch: 0, dinner: 0, drinks: 0 };
-    const restaurants = {};
+    const restaurants = Object.fromEntries(configuredRestaurants.map((restaurant) => [restaurant, 0]));
     let guests = 0;
     for (const response of responses) {
       guests += Number(response.guestCount || 0);
       for (const day of response.availableDays || []) if (day in byDay) byDay[day] += Number(response.guestCount || 0);
       for (const meal of response.mealTypes || []) if (meal in byMeal) byMeal[meal] += Number(response.guestCount || 0);
-      if (response.restaurantChoice) restaurants[response.restaurantChoice] = (restaurants[response.restaurantChoice] || 0) + Number(response.guestCount || 0);
+      for (const restaurant of storedRestaurantChoices(response)) {
+        restaurants[restaurant] = (restaurants[restaurant] || 0) + Number(response.guestCount || 0);
+      }
     }
-    return jsonResponse(200, { responses: responses.length, guests, byDay, byMeal, restaurants });
+    return jsonResponse(200, { responses: responses.length, guests, byDay, byMeal, restaurantChoices: configuredRestaurants, restaurants });
   };
 
   const adminSettings = async (event) => {
@@ -676,7 +691,10 @@ export const createHandler = ({
     const { guestId: requestedGuestId } = parseJsonBody(event);
     const guest = await getGuest(validGuestId(requestedGuestId));
     const credentials = await getCredentials(guest.guestId);
-    if (credentials.length === 0) return jsonResponse(200, { mode: 'whatsapp-rsvp', ...(await rsvpConfig()) });
+    if (credentials.length === 0) {
+      const hasResponse = Boolean(await rsvpForGuest(guest.guestId));
+      return jsonResponse(200, { mode: hasResponse ? 'whatsapp-retrieve' : 'whatsapp-rsvp', ...(await rsvpConfig()) });
+    }
 
     const options = await webauthn.generateAuthenticationOptions({
       rpID: env.WEBAUTHN_RP_ID,
