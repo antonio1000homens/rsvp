@@ -62,7 +62,13 @@ concurrency="$(aws_cli lambda get-function-concurrency --function-name "${functi
 [ "${concurrency}" = '5' ]
 
 queue_config="$(aws_cli sqs get-queue-attributes --queue-url "${phone_queue_url}" --attribute-names SqsManagedSseEnabled RedrivePolicy --query 'Attributes.[SqsManagedSseEnabled,RedrivePolicy]' --output text)"
-case "${queue_config}" in True$'\t'*'maxReceiveCount'*) ;; *) echo "Unexpected phone queue configuration" >&2; exit 1 ;; esac
+queue_sse="${queue_config%%$'\t'*}"
+queue_redrive="${queue_config#*$'\t'}"
+queue_sse_normalized="$(printf '%s' "${queue_sse}" | tr '[:upper:]' '[:lower:]')"
+if [ "${queue_sse_normalized}" != 'true' ] || [[ "${queue_redrive}" != *'maxReceiveCount'* ]]; then
+  echo "Unexpected phone queue configuration" >&2
+  exit 1
+fi
 
 processor_config="$(aws_cli lambda get-function-configuration --function-name "${phone_processor_arn}" --query '[Runtime,MemorySize,Timeout]' --output text)"
 [ "${processor_config}" = $'nodejs24.x\t256\t15' ]
