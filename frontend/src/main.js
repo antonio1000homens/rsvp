@@ -39,6 +39,11 @@ const elements = {
   adminUseTrivia: document.querySelector('#admin-use-trivia'),
   adminGroups: document.querySelector('#admin-groups'),
   rsvpForm: document.querySelector('#rsvp-form'),
+  whatsappRsvpForm: document.querySelector('#whatsapp-rsvp-form'),
+  whatsappAvailabilityDays: document.querySelector('#whatsapp-availability-days'),
+  whatsappRestaurantChoice: document.querySelector('#whatsapp-restaurant-choice'),
+  useWhatsappOnly: document.querySelector('#use-whatsapp-only'),
+  useWhatsappOnlyFromQr: document.querySelector('#use-whatsapp-only-from-qr'),
   availabilityDays: document.querySelector('#availability-days'),
   addPasskey: document.querySelector('#add-passkey'),
   logout: document.querySelector('#logout'),
@@ -54,6 +59,7 @@ let selectedGroup = '';
 let pollGeneration = 0;
 let triviaChallenge = '';
 let triviaToken = '';
+let whatsappRsvpUrl = '';
 
 const api = async (path, options = {}) => {
   const response = await fetch(path, {
@@ -106,6 +112,31 @@ const renderRsvpForm = ({ days, response }) => {
   for (const checkbox of elements.rsvpForm.querySelectorAll('input[name="mealTypes"]')) {
     checkbox.checked = response?.mealTypes?.includes(checkbox.value) || false;
   }
+};
+
+const renderWhatsappRsvpForm = ({ days, restaurantChoices }) => {
+  elements.whatsappAvailabilityDays.replaceChildren();
+  for (const day of days) {
+    const label = document.createElement('label');
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox'; checkbox.name = 'availableDays'; checkbox.value = day;
+    label.append(checkbox, ` ${day}`);
+    elements.whatsappAvailabilityDays.append(label);
+  }
+  elements.whatsappRestaurantChoice.replaceChildren();
+  for (const choice of (restaurantChoices.length ? restaurantChoices : ['Por decidir'])) {
+    elements.whatsappRestaurantChoice.add(new Option(choice, choice));
+  }
+};
+
+const openWhatsappRsvpForm = async () => {
+  try {
+    const config = await api('/api/rsvp/whatsapp/config');
+    whatsappRsvpUrl = config.whatsappUrl;
+    renderWhatsappRsvpForm(config);
+    elements.whatsappRsvpForm.hidden = false;
+    elements.whatsappRsvpForm.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch { elements.registrationStatus.textContent = 'Não foi possível abrir o formulário. Conclua a verificação de segurança e tente novamente.'; }
 };
 
 const loadRsvpForm = async () => {
@@ -401,6 +432,12 @@ elements.backButton.addEventListener('click', () => {
 });
 elements.createPasskey.addEventListener('click', registerPasskey);
 elements.addPasskey.addEventListener('click', registerPasskey);
+elements.useWhatsappOnly.addEventListener('click', openWhatsappRsvpForm);
+elements.useWhatsappOnlyFromQr.addEventListener('click', () => {
+  elements.flowSection.hidden = true;
+  elements.guestSection.hidden = false;
+  openWhatsappRsvpForm();
+});
 elements.logout.addEventListener('click', async () => {
   await post('/api/auth/logout').catch(() => {});
   elements.sessionSection.hidden = true;
@@ -428,6 +465,19 @@ elements.rsvpForm.addEventListener('submit', async (event) => {
     await put('/api/rsvp', payload);
     elements.sessionStatus.textContent = 'Disponibilidade guardada.';
   } catch { elements.sessionStatus.textContent = 'Não foi possível guardar. Confirma as opções e tenta novamente.'; }
+});
+elements.whatsappRsvpForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+  const form = new FormData(elements.whatsappRsvpForm);
+  const payload = {
+    availableDays: form.getAll('availableDays'), guestCount: Number(form.get('guestCount')),
+    mealTypes: form.getAll('mealTypes'), restaurantChoice: form.get('restaurantChoice'),
+    dietaryRestrictions: form.get('dietaryRestrictions'),
+  };
+  const message = `RSVP ${btoa(unescape(encodeURIComponent(JSON.stringify(payload)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')}`;
+  const url = new URL(whatsappRsvpUrl);
+  url.searchParams.set('text', message);
+  window.location.assign(url);
 });
 elements.adminSettingsForm.addEventListener('submit', async (event) => {
   event.preventDefault();

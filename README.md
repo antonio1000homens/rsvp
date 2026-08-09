@@ -113,7 +113,9 @@ Existing installations remain compatible while no groups exist: the directory co
 
 ## RSVP availability and preferences
 
-After passkey authentication, each guest can save their availability across five days, guest count, dietary restrictions, restaurant preference, and whether they are available for lunch, dinner, or drinks. Dietary restrictions are returned only to the authenticated guest; the post-trivia landing page shows anonymous aggregate availability, meal, and restaurant totals.
+After CAPTCHA and, when enabled, trivia validation, guests can choose **Usar somente o WhatsApp**. This opens the availability form without creating a browser account. On submission, the site opens WhatsApp with an encoded `RSVP ...` message addressed to the event number. Tasker must verify that the sender is an enabled contact, then forward the sender plus the exact message to `POST /api/phone/rsvp`. The backend maps the verified sender to their guest record and stores the response. The browser must not submit RSVP data directly in this mode.
+
+Passkeys remain available as an optional way to return to and edit a saved response in the browser. Dietary restrictions are returned only to an authenticated passkey session; the post-trivia landing page shows anonymous aggregate availability, meal, and restaurant totals.
 
 The availability labels are configured at deploy time. Use real dates or day names before production deployment:
 
@@ -155,7 +157,7 @@ Content-Type: application/json
 {"sender":"Ana Costa","message":"VALIDATION contact=Ana%20Costa&nonce=<opaque-nonce>&sig=<signature>"}
 ```
 
-The `contact` field in the validation message is URL-encoded for compatibility with the existing Tasker flow. The nonce and signature are opaque strings and must be forwarded unchanged. The signature is an HMAC-SHA-256 over the exact `contact=...&nonce=...` portion using the private `/rsvp/validation-secret` SecureString. The backend verifies the nonce, stored `sender`, expiry, and WhatsApp sender name before marking the existing guest `confirmed`. Names are matched case-insensitively with accents and cedillas ignored. The guest must then create a passkey. Confirmed guests use passkey login only.
+The `contact` field in the validation message is URL-encoded for compatibility with the existing Tasker flow. The nonce and signature are opaque strings and must be forwarded unchanged. The signature is an HMAC-SHA-256 over the exact `contact=...&nonce=...` portion using the private `/rsvp/validation-secret` SecureString. The backend verifies the nonce, stored `sender`, expiry, and WhatsApp sender name before marking the existing guest `confirmed`. Names are matched case-insensitively with accents and cedillas ignored. Creating a passkey is optional; a confirmed contact can instead use the WhatsApp-only RSVP form.
 
 ## WhatsApp Business app configuration
 
@@ -175,7 +177,9 @@ The bootstrap creates `/rsvp/phone-webhook-secret` as a random SSM SecureString 
 AWS_PROFILE=windsor npm run whatsapp:copy-secret
 ```
 
-Paste it into the private Tasker configuration, then clear the clipboard. After explicitly approving the contact match, forward the complete `VALIDATION ...` message unchanged to `/api/phone/register` with the validated contact name as `sender`. The backend returns `204` after confirming the existing guest; replayed, expired, altered, or mismatched challenges are rejected. The waiting browser then offers passkey creation. Private passkey material never leaves the guest's authenticator; DynamoDB stores only public keys and counters.
+Paste it into the private Tasker configuration, then clear the clipboard. After explicitly approving the contact match, forward the complete `VALIDATION ...` message unchanged to `/api/phone/register` with the validated contact name as `sender`. The backend returns `204` after confirming the existing guest; replayed, expired, altered, or mismatched challenges are rejected.
+
+For a WhatsApp-only RSVP, Tasker must again verify the WhatsApp sender is an enabled contact and forward the exact `RSVP <base64url-json>` message to `/api/phone/rsvp` using the same bearer secret and `{ "sender": "…", "message": "…" }` body. The backend validates the decoded selections against current event settings and saves them only for the guest associated with the verified sender. Do not decode, alter, or add a guest name to the message.
 
 Rotate a compromised phone webhook secret with:
 
