@@ -662,25 +662,19 @@ export const createHandler = ({
     } catch (error) {
       throw new ApiError(400, 'invalid_contact_details', error.message);
     }
-    const existing = await ddb.send(new ScanCommand({
-      TableName: env.RSVP_TABLE,
-      FilterExpression: 'sk = :profile AND entityType = :guest AND nicknameLookup = :nicknameLookup AND enabled = :enabled',
-      ExpressionAttributeValues: { ':profile': 'PROFILE', ':guest': 'guest', ':nicknameLookup': name.lookup, ':enabled': true },
-      ProjectionExpression: 'guestId',
-    }));
-    if (existing.Items?.length) throw new ApiError(409, 'contact_already_requested');
     const guestId = randomUUID();
     const nowValue = now();
-    await ddb.send(new PutCommand({
-      TableName: env.RSVP_TABLE,
-      Item: {
-        pk: `GUEST#${guestId}`, sk: 'PROFILE', entityType: 'guest', guestId,
-        nickname: name.display, nicknameLookup: name.lookup, sender: name.display,
-        identityStatus: 'to_add', enabled: true, sessionVersion: 1,
-        createdAt: nowValue, updatedAt: nowValue,
-      },
-      ConditionExpression: 'attribute_not_exists(pk)',
-    }));
+    try {
+      await ddb.send(new TransactWriteCommand({
+        TransactItems: [
+          { Put: { TableName: env.RSVP_TABLE, Item: { pk: `CONTACT_REQUEST#${name.lookup}`, sk: 'UNIQUE', entityType: 'contactRequestUnique', guestId, createdAt: nowValue }, ConditionExpression: 'attribute_not_exists(pk)' } },
+          { Put: { TableName: env.RSVP_TABLE, Item: { pk: `GUEST#${guestId}`, sk: 'PROFILE', entityType: 'guest', guestId, nickname: name.display, nicknameLookup: name.lookup, sender: name.display, identityStatus: 'to_add', enabled: true, sessionVersion: 1, createdAt: nowValue, updatedAt: nowValue }, ConditionExpression: 'attribute_not_exists(pk)' } },
+        ],
+      }));
+    } catch (error) {
+      if (conditionalFailure(error)) throw new ApiError(409, 'contact_already_requested');
+      throw error;
+    }
     const whatsappUrl = new URL(`https://wa.me/${CONTACT_REQUEST_NUMBER.slice(1)}`);
     whatsappUrl.searchParams.set('text', `Ola Antonio, eu sou o ${name.display} e este e o meu numero de whatsapp. podes-me adicionar a pagina.`);
     return jsonResponse(200, { status: 'to_add', whatsappUrl: whatsappUrl.toString() });

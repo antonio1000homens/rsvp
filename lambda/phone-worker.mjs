@@ -14,10 +14,17 @@ const secret = async () => {
 };
 
 export const handler = async (event = {}) => {
+  const batchItemFailures = [];
   for (const record of event.Records || []) {
-    let payload;
-    try { payload = JSON.parse(record.body); } catch { continue; }
-    if (!payload || typeof payload.sender !== 'string' || typeof payload.message !== 'string' || payload.sender.length > 240 || payload.message.length > 4096) continue;
-    await processPhoneRegistration({ sender: payload.sender, message: payload.message, ddb, tableName: process.env.RSVP_TABLE, validationSecret: await secret(), now: Math.floor(Date.now() / 1000) });
+    try {
+      let payload;
+      try { payload = JSON.parse(record.body); } catch { continue; }
+      if (!payload || typeof payload.sender !== 'string' || typeof payload.message !== 'string' || payload.sender.length > 240 || payload.message.length > 4096) continue;
+      await processPhoneRegistration({ sender: payload.sender, message: payload.message, ddb, tableName: process.env.RSVP_TABLE, validationSecret: await secret(), now: Math.floor(Date.now() / 1000) });
+    } catch {
+      if (record.messageId) batchItemFailures.push({ itemIdentifier: record.messageId });
+      else throw new Error('sqs_record_missing_message_id');
+    }
   }
+  return { batchItemFailures };
 };

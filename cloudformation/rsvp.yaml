@@ -318,6 +318,8 @@ Resources:
       EventSourceArn: !GetAtt PhoneRegistrationQueue.Arn
       FunctionName: !Ref PhoneProcessorFunction
       BatchSize: 1
+      FunctionResponseTypes:
+        - ReportBatchItemFailures
 
   RsvpFunctionUrl:
     Type: AWS::Lambda::Url
