@@ -56,6 +56,13 @@ const elements = {
   newContactMessage: document.querySelector('#new-contact-message'),
   newContactQrCanvas: document.querySelector('#new-contact-qr-canvas'),
   newContactWhatsappLink: document.querySelector('#new-contact-whatsapp-link'),
+  linkSection: document.querySelector('#link-section'),
+  linkTarget: document.querySelector('#link-target'),
+  linkCreate: document.querySelector('#link-create'),
+  linkStatus: document.querySelector('#link-status'),
+  linkQr: document.querySelector('#link-qr'),
+  linkWhatsapp: document.querySelector('#link-whatsapp'),
+  linkCancel: document.querySelector('#link-cancel'),
 };
 
 let selectedGuest = null;
@@ -87,6 +94,7 @@ const api = async (path, options = {}) => {
 
 const post = (path, payload = {}) => api(path, { method: 'POST', body: JSON.stringify(payload) });
 const put = (path, payload = {}) => api(path, { method: 'PUT', body: JSON.stringify(payload) });
+const del = (path, payload = {}) => api(path, { method: 'DELETE', body: JSON.stringify(payload) });
 
 const showAuthenticated = (nickname, message = '', passkeyLabel = 'Adicionar outra chave de acesso') => {
   pollGeneration += 1;
@@ -100,6 +108,41 @@ const showAuthenticated = (nickname, message = '', passkeyLabel = 'Adicionar out
   loadRsvpForm();
   loadAdmin();
   loadRsvpSummary();
+  loadLinkState();
+};
+
+const renderLinkState = async (state) => {
+  elements.linkSection.hidden = false;
+  elements.linkQr.hidden = true;
+  elements.linkCancel.hidden = state.status === 'none';
+  elements.linkTarget.hidden = state.status !== 'none';
+  elements.linkCreate.hidden = state.status !== 'none';
+  if (state.status === 'none') {
+    elements.linkWhatsapp.hidden = true;
+    elements.linkWhatsapp.removeAttribute('href');
+    elements.linkStatus.textContent = 'Podes ligar a tua resposta à de outro membro.';
+    return;
+  }
+  const otherName = state.other?.nickname || 'outro membro';
+  if (state.status === 'pending') {
+    elements.linkStatus.textContent = `Ligação pendente com ${otherName}. O membro seleccionado deve ler o QR e enviar a mensagem WhatsApp.`;
+    elements.linkQr.hidden = false;
+    elements.linkWhatsapp.hidden = false;
+    elements.linkWhatsapp.href = state.whatsappUrl;
+    await QRCode.toCanvas(elements.linkQr, state.whatsappUrl, { width: 228, margin: 1, errorCorrectionLevel: 'M' });
+  } else {
+    elements.linkWhatsapp.hidden = true;
+    elements.linkStatus.textContent = `Ligado a ${otherName}. As respostas dos dois membros são mantidas em conjunto.`;
+  }
+};
+
+const loadLinkState = async () => {
+  try {
+    const [{ candidates }, state] = await Promise.all([api('/api/link/candidates'), api('/api/link')]);
+    elements.linkTarget.replaceChildren(new Option('Escolhe um membro', ''));
+    for (const candidate of candidates) elements.linkTarget.add(new Option(candidate.nickname, candidate.id));
+    await renderLinkState(state);
+  } catch { elements.linkSection.hidden = true; }
 };
 
 const addNoAvailabilityOption = (container, noAvailability = false) => {
@@ -330,6 +373,9 @@ const readableError = (error) => {
   if (error.code === 'passkey_verification_failed') return 'Não foi possível verificar essa chave de acesso.';
   if (error.code === 'registration_required') return 'Este contacto precisa de concluir o registo.';
   if (error.code === 'registration_already_pending') return 'Já existe uma validação WhatsApp pendente para este contacto. Continua a utilizar a mensagem anterior.';
+  if (error.code === 'invalid_link_target') return 'Esse membro não pode ser ligado.';
+  if (error.code === 'member_already_linked') return 'Um dos membros já tem uma ligação pendente ou activa.';
+  if (error.code === 'link_not_found') return 'A ligação já não existe.';
   if (error.code === 'registration_not_required') return 'Este contacto já está registado.';
   if (error.code === 'passkey_required') return 'Este contacto já está confirmado, mas ainda não tem uma chave de acesso configurada.';
   if (error.code === 'registration_unavailable') return 'Esse nome ou contacto já está registado.';
@@ -404,12 +450,24 @@ const loadGuests = async (turnstileToken = '') => {
       return;
     }
     for (const guest of guests) {
-      const button = document.createElement('button');
-      button.type = 'button';
-      button.className = 'guest-button';
-      button.textContent = guest.nickname;
-      button.addEventListener('click', () => selectGuest(guest));
-      elements.guestList.append(button);
+      if (guest.members) {
+        const pair = document.createElement('div');
+        pair.className = 'linked-guest';
+        const label = document.createElement('strong'); label.textContent = guest.nickname;
+        pair.append(label);
+        for (const member of guest.members) {
+          const button = document.createElement('button');
+          button.type = 'button'; button.className = 'guest-button'; button.textContent = `Entrar como ${member.nickname}`;
+          button.addEventListener('click', () => selectGuest(member));
+          pair.append(button);
+        }
+        elements.guestList.append(pair);
+      } else {
+        const button = document.createElement('button');
+        button.type = 'button'; button.className = 'guest-button'; button.textContent = guest.nickname;
+        button.addEventListener('click', () => selectGuest(guest));
+        elements.guestList.append(button);
+      }
     }
   } catch {
     elements.guestList.textContent = 'Não foi possível carregar os convites. Tente novamente mais tarde.';
@@ -606,6 +664,19 @@ elements.adminSettingsForm.addEventListener('submit', async (event) => {
     elements.sessionStatus.textContent = 'Opções do evento guardadas.';
     await loadRsvpForm();
   } catch { elements.sessionStatus.textContent = 'Não foi possível guardar as opções do evento. Confirma o formato das perguntas.'; }
+});
+elements.linkCreate.addEventListener('click', async () => {
+  if (!elements.linkTarget.value) { elements.linkStatus.textContent = 'Escolhe primeiro o membro a ligar.'; return; }
+  elements.linkCreate.disabled = true;
+  try { await renderLinkState(await post('/api/link', { targetGuestId: elements.linkTarget.value })); }
+  catch (error) { elements.linkStatus.textContent = readableError(error); }
+  finally { elements.linkCreate.disabled = false; }
+});
+elements.linkCancel.addEventListener('click', async () => {
+  elements.linkCancel.disabled = true;
+  try { await renderLinkState(await del('/api/link')); }
+  catch (error) { elements.linkStatus.textContent = readableError(error); }
+  finally { elements.linkCancel.disabled = false; }
 });
 elements.newContactForm.addEventListener('submit', async (event) => {
   event.preventDefault();

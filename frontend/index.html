@@ -95,6 +95,15 @@
           <div id="restaurant-votes" class="availability-chart"></div>
           <p id="rsvp-summary-preferences" class="status"></p>
         </section>
+        <section id="link-section" class="link-section" hidden>
+          <h2>Votar em conjunto</h2>
+          <p id="link-status" class="status"></p>
+          <select id="link-target" aria-label="Membro a ligar"></select>
+          <button id="link-create" type="button">Criar ligação</button>
+          <canvas id="link-qr" role="img" aria-label="Código QR para aprovar a ligação" hidden></canvas>
+          <a id="link-whatsapp" class="primary-link" rel="noreferrer" hidden>Enviar aprovação pelo WhatsApp</a>
+          <button id="link-cancel" type="button" class="secondary" hidden>Cancelar ligação</button>
+        </section>
         <details class="collapsible">
           <summary>Editar a minha resposta</summary>
         <form id="rsvp-form" class="rsvp-form">

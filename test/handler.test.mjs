@@ -122,6 +122,7 @@ class FakeDdb {
       }
       for (const operation of input.TransactItems) {
         if (operation.Put) this.items.set(keyOf(operation.Put.Item), structuredClone(operation.Put.Item));
+        if (operation.Delete) this.items.delete(keyOf(operation.Delete.Key));
         if (operation.Update) {
           const current = this.get(operation.Update.Key);
           const expressionValues = operation.Update.ExpressionAttributeValues;
@@ -129,6 +130,7 @@ class FakeDdb {
             current.status = expressionValues[':created'];
             current.approvedAt = expressionValues[':now'];
           }
+          if (expressionValues[':active']) current.status = expressionValues[':active'];
           if (expressionValues[':used']) {
             current.status = 'used';
             current.usedAt = expressionValues[':now'];
@@ -341,6 +343,39 @@ test('the phone worker persists a queued, signed RSVP and acknowledges business 
   assert.equal(await processPhoneRegistration({ sender: 'Antonio Costa', message, ddb, tableName: env.RSVP_TABLE, validationSecret: values['/rsvp/validation-secret'], now: fixedNow }), 'created');
   assert.deepEqual(ddb.get({ pk: `RSVP#${profile.guestId}`, sk: 'RESPONSE' }).availableDays, ['19 December 2026']);
   assert.equal(await processPhoneRegistration({ sender: 'Antonio Costa', message, ddb, tableName: env.RSVP_TABLE, validationSecret: values['/rsvp/validation-secret'], now: fixedNow }), 'registration_challenge_unavailable');
+});
+
+test('a member can link another member through signed WhatsApp approval and synchronize both RSVPs', async () => {
+  const memberA = guest({ nickname: 'Ana', sender: 'Ana', identityStatus: 'confirmed' });
+  const memberB = guest({ pk: 'GUEST#123e4567-e89b-42d3-a456-426614174001', guestId: '123e4567-e89b-42d3-a456-426614174001', nickname: 'Bruno', sender: 'Bruno', identityStatus: 'unconfirmed' });
+  const aResponse = { pk: `RSVP#${memberA.guestId}`, sk: 'RESPONSE', entityType: 'rsvpResponse', guestId: memberA.guestId, availableDays: ['19 December 2026'], guestCount: 1, mealTypes: ['dinner'], restaurantChoices: ['Por decidir'] };
+  const session = signToken({ type: 'session', guestId: memberA.guestId, sessionVersion: 1, exp: fixedNow + 600 }, values['/rsvp/session-secret']);
+  const { handler, ddb } = makeHandler({ items: [memberA, memberB, aResponse] });
+  const created = await handler(request('/api/link', { method: 'POST', cookies: [`rsvp_session=${session}`], body: { targetGuestId: memberB.guestId } }));
+  assert.equal(created.statusCode, 200);
+  const pending = JSON.parse(created.body);
+  assert.equal(pending.status, 'pending');
+  const message = new URL(pending.whatsappUrl).searchParams.get('text');
+  assert.equal(await processPhoneRegistration({ sender: 'Other', message, ddb, tableName: env.RSVP_TABLE, validationSecret: values['/rsvp/validation-secret'], now: fixedNow }), 'sender_mismatch');
+  assert.equal(await processPhoneRegistration({ sender: 'Bruno', message: `${message.slice(0, -1)}x`, ddb, tableName: env.RSVP_TABLE, validationSecret: values['/rsvp/validation-secret'], now: fixedNow }), 'invalid_validation_signature');
+  assert.equal(await processPhoneRegistration({ sender: 'Bruno', message, ddb, tableName: env.RSVP_TABLE, validationSecret: values['/rsvp/validation-secret'], now: fixedNow }), 'linked');
+  assert.equal(ddb.get({ pk: `GUEST#${memberA.guestId}`, sk: 'LINK' }).status, 'active');
+  assert.equal(ddb.get({ pk: `GUEST#${memberB.guestId}`, sk: 'LINK' }).status, 'active');
+  assert.deepEqual(ddb.get({ pk: `RSVP#${memberB.guestId}`, sk: 'RESPONSE' }).availableDays, ['19 December 2026']);
+  const saved = await handler(request('/api/rsvp', { method: 'PUT', cookies: [`rsvp_session=${session}`], body: { availableDays: ['20 December 2026'], guestCount: 2, mealTypes: ['lunch'], restaurantChoices: ['Por decidir'] } }));
+  assert.equal(saved.statusCode, 200);
+  assert.deepEqual(ddb.get({ pk: `RSVP#${memberB.guestId}`, sk: 'RESPONSE' }).availableDays, ['20 December 2026']);
+  assert.equal(ddb.get({ pk: `RSVP#${memberB.guestId}`, sk: 'RESPONSE' }).guestCount, 2);
+  const directory = JSON.parse((await handler(request('/api/guests'))).body);
+  assert.deepEqual(directory.guests.find((entry) => entry.linked), {
+    id: memberA.guestId,
+    nickname: 'Ana & Bruno',
+    linked: true,
+    members: [
+      { id: memberA.guestId, nickname: 'Ana', registrationRequired: false },
+      { id: memberB.guestId, nickname: 'Bruno', registrationRequired: true },
+    ],
+  });
 });
 
 test('a guest with an existing RSVP can retrieve it through WhatsApp without changing the Tasker payload', async () => {
