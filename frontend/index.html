@@ -14,8 +14,8 @@
       <h1>Calçada 2026</h1>
 
       <section id="guest-section">
-        <h2>Já está registado?</h2>
-        <p class="intro">Complete as verificação de segurança e encontra o teu nome.</p>
+        <h2 id="guest-heading" hidden>Já está registado?</h2>
+        <p id="guest-heading-intro" class="intro" hidden>Para mais detalhes, encontra o teu nome e valida o acesso.</p>
         <div id="captcha" class="captcha" aria-label="Verificação de segurança"></div>
         <p id="captcha-status" class="status" role="status" aria-live="polite">A carregar a verificação de segurança…</p>
         <form id="trivia-form" hidden>
@@ -53,6 +53,16 @@
           </div>
           </div>
         </div>
+      </section>
+
+      <section id="rsvp-summary" class="rsvp-summary" hidden aria-live="polite">
+        <h2>Estado actual das respostas</h2>
+        <p id="rsvp-summary-narrative" class="intro" hidden></p>
+        <p id="rsvp-summary-total" class="intro"></p>
+        <div id="availability-chart" class="availability-chart"></div>
+        <h3>Propostas de restaurante</h3>
+        <div id="restaurant-votes" class="availability-chart"></div>
+        <p id="rsvp-summary-preferences" class="status"></p>
       </section>
 
       <section id="flow-section" hidden>
@@ -101,21 +111,12 @@
 
       <section id="session-section" hidden>
         <p class="intro">Sessão iniciada como <strong id="session-name"></strong>.</p>
-        <section id="rsvp-summary" class="rsvp-summary" hidden aria-live="polite">
-          <h2>Estado actual das respostas</h2>
-          <p id="rsvp-summary-narrative" class="intro" hidden></p>
-          <p id="rsvp-summary-total" class="intro"></p>
-          <div id="availability-chart" class="availability-chart"></div>
-          <h3>Propostas de restaurante</h3>
-          <div id="restaurant-votes" class="availability-chart"></div>
-          <p id="rsvp-summary-preferences" class="status"></p>
-        </section>
         <details id="link-section" class="link-section" hidden>
-          <summary>Adicionar membro</summary>
+          <summary>Casaste-te com alguém da Rua? Adiciona aqui para contar os votos por 2</summary>
           <p class="fine-print">O membro só precisa de validar o convite pelo WhatsApp. Depois da validação, passam a votar em conjunto e cada voto conta duas vezes, uma por cada pessoa.</p>
           <p id="link-status" class="status"></p>
           <select id="link-target" aria-label="Membro a adicionar"></select>
-          <button id="link-create" type="button">Adicionar membro</button>
+          <button id="link-create" type="button">Adicionar</button>
           <canvas id="link-qr" role="img" aria-label="Código QR para aprovar a ligação" hidden></canvas>
           <a id="link-whatsapp" class="primary-link" rel="noreferrer" hidden>Enviar aprovação pelo WhatsApp</a>
           <button id="link-cancel" type="button" class="secondary" hidden>Cancelar ligação</button>

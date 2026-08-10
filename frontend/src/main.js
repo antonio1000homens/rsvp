@@ -3,6 +3,8 @@ import { startAuthentication, startRegistration } from '@simplewebauthn/browser'
 
 const elements = {
   guestSection: document.querySelector('#guest-section'),
+  guestHeading: document.querySelector('#guest-heading'),
+  guestHeadingIntro: document.querySelector('#guest-heading-intro'),
   guestList: document.querySelector('#guest-list'),
   guestSearch: document.querySelector('#guest-search'),
   groupPicker: document.querySelector('#group-picker'),
@@ -609,11 +611,14 @@ const completeValidation = async () => {
   elements.captchaStatus.hidden = true;
   elements.triviaForm.hidden = true;
   elements.triviaStatus.hidden = true;
+  elements.guestHeading.hidden = false;
+  elements.guestHeadingIntro.hidden = false;
   elements.validatedContent.hidden = false;
   elements.newContactForm.hidden = false;
   elements.guestSearch.value = '';
   elements.guestSearch.focus();
   elements.guestList.textContent = 'Começa a escrever para procurar o teu nome.';
+  await loadRsvpSummary();
   await loadGroups();
 };
 
