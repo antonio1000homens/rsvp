@@ -42,6 +42,8 @@ function_name="$(output_value FunctionName)"
 function_url="$(output_value FunctionUrl)"
 phone_queue_url="$(output_value PhoneRegistrationQueueUrl)"
 phone_processor_arn="$(output_value PhoneProcessorFunctionArn)"
+summary_queue_url="$(output_value SummaryQueueUrl)"
+summary_processor_arn="$(output_value SummaryProcessorFunctionArn)"
 
 public_access="$(aws_cli s3api get-public-access-block --bucket "${site_bucket}" --query 'PublicAccessBlockConfiguration.[BlockPublicAcls,IgnorePublicAcls,BlockPublicPolicy,RestrictPublicBuckets]' --output text)"
 [ "${public_access}" = $'True\tTrue\tTrue\tTrue' ]
@@ -80,6 +82,24 @@ mapping_config="$(aws_cli lambda list-event-source-mappings --function-name "${p
 
 dlq_alarm="$(aws_cli cloudwatch describe-alarms --alarm-names rsvp-phone-registration-dlq-not-empty --query 'MetricAlarms[0].AlarmName' --output text)"
 [ "${dlq_alarm}" = 'rsvp-phone-registration-dlq-not-empty' ]
+
+summary_queue_config="$(aws_cli sqs get-queue-attributes --queue-url "${summary_queue_url}" --attribute-names SqsManagedSseEnabled RedrivePolicy --query 'Attributes.[SqsManagedSseEnabled,RedrivePolicy]' --output text)"
+summary_queue_sse="${summary_queue_config%%$'\t'*}"
+summary_queue_redrive="${summary_queue_config#*$'\t'}"
+summary_queue_sse_normalized="$(printf '%s' "${summary_queue_sse}" | tr '[:upper:]' '[:lower:]')"
+if [ "${summary_queue_sse_normalized}" != 'true' ] || [[ "${summary_queue_redrive}" != *'maxReceiveCount'* ]]; then
+  echo "Unexpected summary queue configuration" >&2
+  exit 1
+fi
+
+summary_processor_config="$(aws_cli lambda get-function-configuration --function-name "${summary_processor_arn}" --query '[Runtime,MemorySize,Timeout,Environment.Variables.GEMINI_API_KEY_PARAMETER]' --output text)"
+[ "${summary_processor_config}" = $'nodejs24.x\t256\t15\t/rsvp/gemini-api-key' ]
+summary_processor_concurrency="$(aws_cli lambda get-function-concurrency --function-name "${summary_processor_arn}" --query 'ReservedConcurrentExecutions' --output text)"
+[ "${summary_processor_concurrency}" = '1' ]
+summary_mapping_config="$(aws_cli lambda list-event-source-mappings --function-name "${summary_processor_arn}" --query 'EventSourceMappings[0].[BatchSize,State]' --output text)"
+[ "${summary_mapping_config}" = $'1\tEnabled' ]
+summary_dlq_alarm="$(aws_cli cloudwatch describe-alarms --alarm-names rsvp-summary-dlq-not-empty --query 'MetricAlarms[0].AlarmName' --output text)"
+[ "${summary_dlq_alarm}" = 'rsvp-summary-dlq-not-empty' ]
 
 retention="$(aws_cli logs describe-log-groups --log-group-name-prefix "/aws/lambda/${function_name}" --query 'logGroups[?logGroupName==`/aws/lambda/'"${function_name}"'`].retentionInDays | [0]' --output text)"
 [ "${retention}" = '7' ]

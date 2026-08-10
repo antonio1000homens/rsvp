@@ -36,6 +36,7 @@ const env = {
   SITE_BUCKET: 'rsvp-test-site',
   RSVP_TABLE: 'rsvp-test',
   PHONE_QUEUE_URL: 'https://sqs.eu-west-2.amazonaws.com/123/rsvp-phone-registration',
+  SUMMARY_QUEUE_URL: 'https://sqs.eu-west-2.amazonaws.com/123/rsvp-summary',
   WEBAUTHN_RP_ID: 'calcada2026.pt',
   WEBAUTHN_EXPECTED_ORIGIN: 'https://calcada2026.pt',
   WEBAUTHN_RP_NAME: 'Calçada 2026 RSVP',
@@ -312,7 +313,7 @@ test('groups filter the guest directory through independent many-to-many members
 
 test('an authenticated guest can save RSVP choices and the trivia-gated summary is aggregate-only', async () => {
   const restaurantSettings = { pk: 'EVENT#DEFAULT', sk: 'SETTINGS', entityType: 'eventSettings', restaurantChoices: ['Tasquinha', 'O Pátio'] };
-  const { handler } = makeHandler({ items: [guest(), restaurantSettings] });
+  const { handler, queued } = makeHandler({ items: [guest(), restaurantSettings] });
   const session = signToken({ type: 'session', guestId: guest().guestId, sessionVersion: 1, exp: fixedNow + 600 }, values['/rsvp/session-secret']);
   const response = await handler(request('/api/rsvp', {
     method: 'PUT',
@@ -331,6 +332,7 @@ test('an authenticated guest can save RSVP choices and the trivia-gated summary 
   assert.deepEqual(JSON.parse(serialized).byDay, { '19 December 2026': 2, '20 December 2026': 0, '21 December 2026': 2, '22 December 2026': 0, '23 December 2026': 0 });
   assert.deepEqual(JSON.parse(serialized).restaurantChoices, ['Tasquinha', 'O Pátio']);
   assert.deepEqual(JSON.parse(serialized).restaurants, { Tasquinha: 2, 'O Pátio': 2 });
+  assert.equal(JSON.parse(queued[0].MessageBody).activity.type, 'rsvp_saved');
   assert.doesNotMatch(serialized, /Vegetariano/);
 });
 

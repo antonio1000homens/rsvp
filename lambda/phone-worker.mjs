@@ -1,10 +1,12 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient } from '@aws-sdk/lib-dynamodb';
 import { GetParameterCommand, SSMClient } from '@aws-sdk/client-ssm';
+import { SendMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
 import { processPhoneRegistration } from './phone-registration.mjs';
 
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}), { marshallOptions: { removeUndefinedValues: true } });
 const ssm = new SSMClient({});
+const sqs = new SQSClient({});
 let validationSecret;
 
 const secret = async () => {
@@ -20,7 +22,11 @@ export const handler = async (event = {}) => {
       let payload;
       try { payload = JSON.parse(record.body); } catch { continue; }
       if (!payload || typeof payload.sender !== 'string' || typeof payload.message !== 'string' || payload.sender.length > 240 || payload.message.length > 4096) continue;
-      await processPhoneRegistration({ sender: payload.sender, message: payload.message, ddb, tableName: process.env.RSVP_TABLE, validationSecret: await secret(), now: Math.floor(Date.now() / 1000) });
+      const activity = [];
+      await processPhoneRegistration({ sender: payload.sender, message: payload.message, ddb, tableName: process.env.RSVP_TABLE, validationSecret: await secret(), now: Math.floor(Date.now() / 1000), onConfirmedRegistration: (registration) => activity.push(registration) });
+      if (activity.length && process.env.SUMMARY_QUEUE_URL) {
+        await sqs.send(new SendMessageCommand({ QueueUrl: process.env.SUMMARY_QUEUE_URL, MessageBody: JSON.stringify({ activity: { type: 'registration', nickname: activity[0].nickname } }) }));
+      }
     } catch {
       if (record.messageId) batchItemFailures.push({ itemIdentifier: record.messageId });
       else throw new Error('sqs_record_missing_message_id');

@@ -682,6 +682,12 @@ export const createHandler = ({
     const items = [{ Put: { TableName: env.RSVP_TABLE, Item: { pk: `RSVP#${guest.guestId}`, sk: 'RESPONSE', entityType: 'rsvpResponse', guestId: guest.guestId, ...choices, updatedAt: now() } } }];
     if (marker?.status === 'active') items.push({ Put: { TableName: env.RSVP_TABLE, Item: { pk: `RSVP#${marker.otherGuestId}`, sk: 'RESPONSE', entityType: 'rsvpResponse', guestId: marker.otherGuestId, ...choices, updatedAt: now() } } });
     await ddb.send(items.length === 1 ? new PutCommand(items[0].Put) : new TransactWriteCommand({ TransactItems: items }));
+    if (env.SUMMARY_QUEUE_URL) {
+      await sqs.send(new SendMessageCommand({
+        QueueUrl: env.SUMMARY_QUEUE_URL,
+        MessageBody: JSON.stringify({ activity: { type: 'rsvp_saved', nickname: String(guest.nickname || '').replace(/ — Por confirmar$/, '') } }),
+      }));
+    }
     return jsonResponse(200, { saved: true, ...config, response: choices });
   };
 
@@ -832,7 +838,8 @@ export const createHandler = ({
         }
       }
     }
-    return jsonResponse(200, { responses: responses.length, guests, byDay, byMeal, dayVoters, mealVoters, restaurantChoices: restaurantNames, restaurants, restaurantVoters });
+    const aiSummary = (await ddb.send(new GetCommand({ TableName: env.RSVP_TABLE, Key: { pk: 'EVENT#DEFAULT', sk: 'AI_SUMMARY' }, ConsistentRead: true }))).Item;
+    return jsonResponse(200, { responses: responses.length, guests, byDay, byMeal, dayVoters, mealVoters, restaurantChoices: restaurantNames, restaurants, restaurantVoters, ...(aiSummary?.narrative ? { narrative: aiSummary.narrative, narrativeGeneratedAt: aiSummary.generatedAt } : {}) });
   };
 
   const adminSettings = async (event) => {

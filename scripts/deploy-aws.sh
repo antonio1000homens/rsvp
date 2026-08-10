@@ -45,6 +45,13 @@ fi
 [ -n "${service_role_arn}" ] && [ "${service_role_arn}" != "None" ] || error "Missing CloudFormation service role ARN. Run scripts/bootstrap-aws.sh first."
 
 cd "${ROOT_DIR}"
+gemini_api_key="${GEMINI_API_KEY:-}"
+if [ -z "${gemini_api_key}" ] && command -v bws >/dev/null 2>&1 && [ -n "${BW_GEMINI:-}" ]; then
+  gemini_api_key="$(bws secret get "${BW_GEMINI}" --output json | jq -r '.value // empty')"
+fi
+[ -n "${gemini_api_key}" ] || error "Missing Gemini API key: set GEMINI_API_KEY or configure bws and BW_GEMINI."
+printf '%s' "${gemini_api_key}" | aws_cli ssm put-parameter --name /rsvp/gemini-api-key --type SecureString --value file:///dev/stdin --overwrite >/dev/null
+unset gemini_api_key
 # skip rebuild if dist was pre-built (e.g. downloaded from CI artifact)
 if [ ! -f "${ROOT_DIR}/dist/lambda/index.mjs" ]; then
   npm ci
@@ -53,9 +60,10 @@ fi
 
 cp "${ROOT_DIR}/dist/lambda/index.mjs" "${TEMP_DIR}/index.mjs"
 cp "${ROOT_DIR}/dist/lambda/phone-worker.mjs" "${TEMP_DIR}/phone-worker.mjs"
+cp "${ROOT_DIR}/dist/lambda/summary-worker.mjs" "${TEMP_DIR}/summary-worker.mjs"
 (
   cd "${TEMP_DIR}"
-  zip -q lambda.zip index.mjs phone-worker.mjs
+  zip -q lambda.zip index.mjs phone-worker.mjs summary-worker.mjs
 )
 
 if [ -n "${GITHUB_SHA:-}" ]; then

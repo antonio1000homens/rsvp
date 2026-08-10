@@ -12,6 +12,7 @@ test('deployment script uses the scoped artifact prefix and protects the stack',
   await mkdir(lambdaOutput, { recursive: true });
   let previousLambda;
   let previousWorker;
+  let previousSummaryWorker;
   try {
     previousLambda = await readFile(new URL('index.mjs', lambdaOutput));
   } catch {
@@ -22,11 +23,18 @@ test('deployment script uses the scoped artifact prefix and protects the stack',
   } catch {
     previousWorker = null;
   }
+  try {
+    previousSummaryWorker = await readFile(new URL('summary-worker.mjs', lambdaOutput));
+  } catch {
+    previousSummaryWorker = null;
+  }
   await writeFile(new URL('index.mjs', lambdaOutput), 'export const handler = async () => ({ statusCode: 200 });\n');
   await writeFile(new URL('phone-worker.mjs', lambdaOutput), 'export const handler = async () => {};\n');
+  await writeFile(new URL('summary-worker.mjs', lambdaOutput), 'export const handler = async () => {};\n');
   t.after(async () => {
     if (previousLambda) await writeFile(new URL('index.mjs', lambdaOutput), previousLambda);
     if (previousWorker) await writeFile(new URL('phone-worker.mjs', lambdaOutput), previousWorker);
+    if (previousSummaryWorker) await writeFile(new URL('summary-worker.mjs', lambdaOutput), previousSummaryWorker);
   });
 
   const commands = {
@@ -61,6 +69,7 @@ exit 0
       GITHUB_ACTIONS: 'true',
       GITHUB_SHA: '0123456789abcdef',
       AWS_CLOUDFORMATION_ROLE_ARN: 'arn:aws:iam::123456789012:role/RsvpCloudFormationServiceRole',
+      GEMINI_API_KEY: 'test-gemini-api-key',
     },
     encoding: 'utf8',
   });

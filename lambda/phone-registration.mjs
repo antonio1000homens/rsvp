@@ -10,7 +10,7 @@ const conditionalFailure = (error) =>
 
 // Business outcomes are acknowledged by SQS. Only infrastructure failures throw
 // and are retried/redriven by the queue.
-export const processPhoneRegistration = async ({ sender, message, ddb, tableName, validationSecret, now }) => {
+export const processPhoneRegistration = async ({ sender, message, ddb, tableName, validationSecret, now, onConfirmedRegistration = null }) => {
   let normalizedSender;
   try { normalizedSender = normalizeContactName(sender); } catch { return 'invalid_sender'; }
   const match = VALIDATION_MESSAGE.exec(String(message || ''));
@@ -55,6 +55,7 @@ export const processPhoneRegistration = async ({ sender, message, ddb, tableName
     if (conditionalFailure(error)) return 'registration_unavailable';
     throw error;
   }
+  if (onConfirmedRegistration) await onConfirmedRegistration({ nickname: String(selectedGuest.nickname || '').replace(/ — Por confirmar$/, '') });
   return 'created';
 };
 

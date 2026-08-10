@@ -9,6 +9,7 @@ const elements = {
   groupSelect: document.querySelector('#group-select'),
   validatedContent: document.querySelector('#validated-content'),
   rsvpSummary: document.querySelector('#rsvp-summary'),
+  rsvpSummaryNarrative: document.querySelector('#rsvp-summary-narrative'),
   rsvpSummaryTotal: document.querySelector('#rsvp-summary-total'),
   availabilityChart: document.querySelector('#availability-chart'),
   restaurantVotes: document.querySelector('#restaurant-votes'),
@@ -259,6 +260,8 @@ const loadAdmin = async () => {
 const loadRsvpSummary = async () => {
   try {
     const summary = await api('/api/rsvp/summary');
+    elements.rsvpSummaryNarrative.textContent = summary.narrative || '';
+    elements.rsvpSummaryNarrative.hidden = !summary.narrative;
     const maximum = Math.max(1, ...Object.values(summary.byDay));
     elements.availabilityChart.replaceChildren();
     for (const [day, count] of Object.entries(summary.byDay)) {

@@ -20,6 +20,9 @@ Parameters:
   PhoneProcessorFunctionName:
     Type: String
     Default: rsvp-phone-processor
+  SummaryProcessorFunctionName:
+    Type: String
+    Default: rsvp-summary-processor
   OriginSecretParameter:
     Type: String
     Default: /rsvp/origin-secret
@@ -41,6 +44,9 @@ Parameters:
   TurnstileSecretParameter:
     Type: String
     Default: /rsvp/turnstile-secret
+  GeminiApiKeyParameter:
+    Type: String
+    Default: /rsvp/gemini-api-key
   WebauthnRpId:
     Type: String
     Default: calcada2026.pt
@@ -160,6 +166,40 @@ Resources:
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
 
+  SummaryDlq:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: rsvp-summary-dlq
+      SqsManagedSseEnabled: true
+      MessageRetentionPeriod: 1209600
+
+  SummaryQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: rsvp-summary
+      SqsManagedSseEnabled: true
+      VisibilityTimeout: 60
+      MessageRetentionPeriod: 86400
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt SummaryDlq.Arn
+        maxReceiveCount: 5
+
+  SummaryDlqAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: rsvp-summary-dlq-not-empty
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt SummaryDlq.QueueName
+      Statistic: Maximum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+
   RsvpFunctionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -213,6 +253,10 @@ Resources:
                 Effect: Allow
                 Action: sqs:SendMessage
                 Resource: !GetAtt PhoneRegistrationQueue.Arn
+              - Sid: EnqueueEventSummaries
+                Effect: Allow
+                Action: sqs:SendMessage
+                Resource: !GetAtt SummaryQueue.Arn
               - Sid: WriteFunctionLogs
                 Effect: Allow
                 Action:
@@ -252,6 +296,7 @@ Resources:
           WEBAUTHN_RP_NAME: Calçada 2026 RSVP
           RSVP_DAYS: !Join [',', !Ref AvailabilityDays]
           PHONE_QUEUE_URL: !Ref PhoneRegistrationQueue
+          SUMMARY_QUEUE_URL: !Ref SummaryQueue
       Tags:
         - Key: Application
           Value: rsvp
@@ -286,6 +331,9 @@ Resources:
                 Action: [dynamodb:GetItem, dynamodb:PutItem, dynamodb:TransactWriteItems, dynamodb:UpdateItem]
                 Resource: !GetAtt RsvpTable.Arn
               - Effect: Allow
+                Action: sqs:SendMessage
+                Resource: !GetAtt SummaryQueue.Arn
+              - Effect: Allow
                 Action: ssm:GetParameter
                 Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${ValidationSecretParameter}
               - Effect: Allow
@@ -311,6 +359,70 @@ Resources:
         Variables:
           RSVP_TABLE: !Ref RsvpTable
           VALIDATION_SECRET_PARAMETER: !Ref ValidationSecretParameter
+          SUMMARY_QUEUE_URL: !Ref SummaryQueue
+
+  SummaryProcessorLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${SummaryProcessorFunctionName}
+      RetentionInDays: 7
+
+  SummaryProcessorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ProcessEventSummaries
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: [sqs:ReceiveMessage, sqs:DeleteMessage, sqs:GetQueueAttributes, sqs:ChangeMessageVisibility]
+                Resource: !GetAtt SummaryQueue.Arn
+              - Effect: Allow
+                Action: [dynamodb:GetItem, dynamodb:PutItem, dynamodb:Scan]
+                Resource: !GetAtt RsvpTable.Arn
+              - Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${GeminiApiKeyParameter}
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !GetAtt SummaryProcessorLogGroup.Arn
+
+  SummaryProcessorFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: SummaryProcessorLogGroup
+    Properties:
+      FunctionName: !Ref SummaryProcessorFunctionName
+      Runtime: nodejs24.x
+      Architectures: [arm64]
+      Handler: summary-worker.handler
+      Role: !GetAtt SummaryProcessorRole.Arn
+      Timeout: 15
+      MemorySize: 256
+      ReservedConcurrentExecutions: 1
+      Code:
+        S3Bucket: !Ref CodeBucket
+        S3Key: !Ref FunctionCodeKey
+      Environment:
+        Variables:
+          RSVP_TABLE: !Ref RsvpTable
+          GEMINI_API_KEY_PARAMETER: !Ref GeminiApiKeyParameter
+
+  SummaryProcessorEventSource:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      EventSourceArn: !GetAtt SummaryQueue.Arn
+      FunctionName: !Ref SummaryProcessorFunction
+      BatchSize: 1
+      FunctionResponseTypes:
+        - ReportBatchItemFailures
 
   PhoneProcessorEventSource:
     Type: AWS::Lambda::EventSourceMapping
@@ -366,3 +478,7 @@ Outputs:
     Value: !Ref PhoneRegistrationQueue
   PhoneProcessorFunctionArn:
     Value: !GetAtt PhoneProcessorFunction.Arn
+  SummaryQueueUrl:
+    Value: !Ref SummaryQueue
+  SummaryProcessorFunctionArn:
+    Value: !GetAtt SummaryProcessorFunction.Arn
