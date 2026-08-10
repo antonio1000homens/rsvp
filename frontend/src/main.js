@@ -42,6 +42,7 @@ const elements = {
   sessionSection: document.querySelector('#session-section'),
   sessionName: document.querySelector('#session-name'),
   sessionStatus: document.querySelector('#session-status'),
+  toast: document.querySelector('#toast'),
   restaurantChoices: document.querySelector('#restaurant-choices'),
   adminSection: document.querySelector('#admin-section'),
   adminDates: document.querySelector('#admin-dates'),
@@ -85,6 +86,17 @@ let pollGeneration = 0;
 let triviaChallenge = '';
 let triviaToken = '';
 let selectedAuthResult = null;
+let toastTimer = null;
+
+const showToast = (message) => {
+  elements.toast.textContent = message;
+  elements.toast.hidden = false;
+  if (toastTimer) window.clearTimeout(toastTimer);
+  toastTimer = window.setTimeout(() => {
+    elements.toast.hidden = true;
+    toastTimer = null;
+  }, 3500);
+};
 
 const setWaiting = (waiting) => {
   elements.waitingIndicator.hidden = !waiting;
@@ -711,7 +723,8 @@ elements.rsvpForm.addEventListener('submit', async (event) => {
   elements.sessionStatus.textContent = 'A guardar…';
   try {
     await put('/api/rsvp', payload);
-    elements.sessionStatus.textContent = 'Disponibilidade guardada.';
+    elements.sessionStatus.textContent = '';
+    showToast('Disponibilidade guardada.');
   } catch { elements.sessionStatus.textContent = 'Não foi possível guardar. Confirma as opções e tenta novamente.'; }
 });
 elements.whatsappRsvpForm.addEventListener('submit', async (event) => {

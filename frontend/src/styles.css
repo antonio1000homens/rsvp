@@ -110,6 +110,7 @@ button:hover, .primary-link:hover { background: #352216; }
 .text-button:hover { background: transparent; color: #352216; }
 
 .status { min-height: 1.5rem; margin: 1rem 0; color: #76513a; line-height: 1.4; }
+.toast { position: fixed; z-index: 10; right: 1rem; bottom: 1rem; max-width: min(24rem, calc(100vw - 2rem)); padding: 0.8rem 1rem; border: 1px solid #b99476; border-radius: 0.55rem; background: #fff8ed; box-shadow: 0 0.5rem 1.5rem rgba(45, 38, 31, 0.18); color: #513521; font-weight: 650; }
 .waiting-indicator { display: flex; align-items: center; justify-content: center; gap: 0.55rem; margin: 0.75rem 0; color: #76513a; font-size: 0.9rem; }
 .waiting-indicator span { width: 1.15rem; height: 1.15rem; border: 0.18rem solid #d9c7b8; border-top-color: #8a5838; border-radius: 50%; animation: waiting-spin 0.8s linear infinite; }
 @keyframes waiting-spin { to { transform: rotate(360deg); } }

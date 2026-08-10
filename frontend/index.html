@@ -142,7 +142,7 @@
           <fieldset><legend>Restaurantes propostos (podes escolher mais do que um)</legend><div id="restaurant-choices" class="choice-grid"></div></fieldset>
           <label for="proposed-restaurants">Outros restaurantes que propões (um por linha)</label>
           <textarea id="proposed-restaurants" name="proposedRestaurantChoices" maxlength="600" placeholder="Nome do restaurante"></textarea>
-          <label for="dietary-restrictions">Restrições alimentares</label>
+          <label for="dietary-restrictions">Restrições alimentares, requisitos, notas</label>
           <textarea id="dietary-restrictions" name="dietaryRestrictions" maxlength="500" placeholder="Nenhuma"></textarea>
           <button type="submit">Guardar disponibilidade</button>
         </form>
@@ -183,6 +183,7 @@
         <p id="session-status" class="status" role="status" aria-live="polite"></p>
       </section>
     </main>
+    <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
     <script type="module" src="/__APP_JS__"></script>
   </body>
 </html>
