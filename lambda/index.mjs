@@ -773,7 +773,7 @@ export const createHandler = ({
       }
       for (const restaurant of [...storedRestaurantChoices(response), ...storedProposedRestaurantChoices(response)]) {
         restaurants[restaurant] = (restaurants[restaurant] || 0) + Number(response.guestCount || 0);
-        const nickname = nicknames.get(response.guestId);
+        const nickname = displayNames.get(response.guestId);
         if (nickname && !restaurantVoters[restaurant]?.some((voter) => voter.nickname === nickname)) {
           (restaurantVoters[restaurant] ||= []).push({ nickname, guestCount: Number(response.guestCount || 0) });
         }
