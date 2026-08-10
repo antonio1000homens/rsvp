@@ -406,7 +406,9 @@ const showRegistrationWhatsapp = async (result) => {
       if (state.status === 'sender_mismatch') {
         setWaiting(false);
         elements.whatsappPanel.hidden = true;
-        elements.status.textContent = 'Contacto WhatsApp não corresponde ao nome escolhido. Escolhe outro nome.';
+        const mismatchMessage = 'O nome do contacto WhatsApp não corresponde ao convidado escolhido. Confirma o contacto e tenta novamente.';
+        elements.status.textContent = mismatchMessage;
+        showToast(mismatchMessage);
         showValidatedGuestSelection();
         return;
       }
