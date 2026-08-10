@@ -28,11 +28,13 @@
         </form>
         <p id="trivia-status" class="status" role="status" aria-live="polite"></p>
         <div id="validated-content" hidden>
-          <p class="intro">Selecione o seu nome para enviar a resposta.</p>
+          <p class="intro">Escreve pelo menos uma letra do teu nome para encontrar o convite.</p>
           <div id="group-picker" hidden>
             <label for="group-select">Grupo</label>
             <select id="group-select"></select>
           </div>
+          <label for="guest-search">Nome</label>
+          <input id="guest-search" type="search" autocomplete="off" placeholder="Começa a escrever…" aria-label="Procurar o teu nome">
           <div id="guest-list" class="guest-list" aria-live="polite"></div>
           <hr>
           <button id="toggle-new-contact" type="button" class="secondary">Não encontro o meu nome</button>
@@ -58,6 +60,18 @@
         <h2 id="selected-name"></h2>
         <p id="status" class="status" role="status" aria-live="polite"></p>
         <div id="waiting-indicator" class="waiting-indicator" role="status" aria-label="A aguardar validação" hidden><span aria-hidden="true"></span> A aguardar validação…</div>
+
+        <div id="credential-actions" class="actions" hidden>
+          <button id="use-passkey" type="button" hidden>Entrar com chave de acesso</button>
+          <button id="use-password" type="button" class="secondary" hidden>Entrar com palavra-passe</button>
+        </div>
+        <form id="password-login-form" class="rsvp-form" hidden>
+          <label for="password-login-input">Palavra-passe</label>
+          <input id="password-login-input" name="password" type="password" minlength="8" maxlength="128" autocomplete="current-password" required>
+          <button type="submit">Entrar</button>
+          <button id="password-recovery" type="button" class="secondary">Recuperar pelo WhatsApp</button>
+          <p id="password-login-status" class="status" role="status" aria-live="polite"></p>
+        </form>
 
         <div id="whatsapp-panel" class="whatsapp-panel" hidden>
           <p>Leia este código QR com o telefone/numero WhatsApp que foi partilhado</p>
@@ -130,6 +144,19 @@
           <textarea id="dietary-restrictions" name="dietaryRestrictions" maxlength="500" placeholder="Nenhuma"></textarea>
           <button type="submit">Guardar disponibilidade</button>
         </form>
+        </details>
+        <details class="collapsible">
+          <summary>Palavra-passe e chaves de acesso</summary>
+          <form id="password-form" class="rsvp-form">
+            <p class="fine-print">A palavra-passe deve ter entre 8 e 128 caracteres.</p>
+            <label for="password-new">Nova palavra-passe</label>
+            <input id="password-new" name="password" type="password" minlength="8" maxlength="128" autocomplete="new-password">
+            <label for="password-confirm">Confirmar palavra-passe</label>
+            <input id="password-confirm" name="confirmPassword" type="password" minlength="8" maxlength="128" autocomplete="new-password">
+            <button type="submit">Guardar palavra-passe</button>
+            <button id="password-remove" type="button" class="secondary">Remover palavra-passe</button>
+            <p id="password-status" class="status" role="status" aria-live="polite"></p>
+          </form>
         </details>
         <details id="admin-section" class="admin-section collapsible" hidden>
           <summary>Administração do evento</summary>

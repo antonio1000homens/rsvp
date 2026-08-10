@@ -1,7 +1,8 @@
-import { createHmac, randomBytes as nodeRandomBytes, randomUUID } from 'node:crypto';
+import { createHmac, randomBytes as nodeRandomBytes, randomUUID, scryptSync, timingSafeEqual } from 'node:crypto';
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
   DynamoDBDocumentClient,
+  DeleteCommand,
   GetCommand,
   PutCommand,
   QueryCommand,
@@ -112,6 +113,41 @@ class ApiError extends Error {
 }
 
 export const secretsMatch = safeEqual;
+
+const PASSWORD_MIN_LENGTH = 8;
+const PASSWORD_MAX_LENGTH = 128;
+const PASSWORD_KEYLEN = 64;
+
+const passwordText = (value) => typeof value === 'string' ? value : '';
+
+export const validatePassword = (value) => {
+  const password = passwordText(value);
+  const length = [...password].length;
+  if (length < PASSWORD_MIN_LENGTH || length > PASSWORD_MAX_LENGTH) throw new ApiError(400, 'invalid_password');
+  return password;
+};
+
+export const hashPassword = (value) => {
+  const password = validatePassword(value);
+  const salt = nodeRandomBytes(16).toString('base64url');
+  const derived = scryptSync(password, Buffer.from(salt, 'base64url'), PASSWORD_KEYLEN, { N: 16384, r: 8, p: 1 });
+  return `scrypt$16384$8$1$${salt}$${derived.toString('base64url')}`;
+};
+
+export const verifyPassword = (value, encoded) => {
+  const password = passwordText(value);
+  const parts = String(encoded || '').split('$');
+  if (parts.length !== 6 || parts[0] !== 'scrypt') return false;
+  const [, n, r, p, salt, expectedEncoded] = parts;
+  const expected = Buffer.from(expectedEncoded, 'base64url');
+  if (!expected.length || !salt || !/^\d+$/.test(n) || !/^\d+$/.test(r) || !/^\d+$/.test(p)) return false;
+  try {
+    const actual = scryptSync(password, Buffer.from(salt, 'base64url'), expected.length, { N: Number(n), r: Number(r), p: Number(p) });
+    return actual.length === expected.length && timingSafeEqual(actual, expected);
+  } catch {
+    return false;
+  }
+};
 
 export const safeObjectKey = (rawPath) => {
   let decoded;
@@ -345,6 +381,15 @@ export const createHandler = ({
     return result.Items || [];
   };
 
+  const getPasswordCredential = async (guestId) => {
+    const result = await ddb.send(new GetCommand({
+      TableName: env.RSVP_TABLE,
+      Key: { pk: `GUEST#${guestId}`, sk: 'PASSWORD' },
+      ConsistentRead: true,
+    }));
+    return result.Item || null;
+  };
+
   const makeSignedCookie = async (name, payload, ttl) => {
     const secret = await getSessionSecret();
     if (!secret) throw new ApiError(503, 'authentication_unavailable');
@@ -504,7 +549,9 @@ export const createHandler = ({
     return jsonResponse(200, { groups });
   };
 
-  const listGuests = async (groupId = '') => {
+  const listGuests = async (groupId = '', query = '') => {
+    let search;
+    try { search = normalizeContactName(query); } catch { throw new ApiError(400, 'invalid_guest_search'); }
     let profiles;
     if (groupId) {
       await getGroup(validGroupId(groupId));
@@ -524,7 +571,12 @@ export const createHandler = ({
       }));
       profiles = result.Items || [];
     }
-    const visibleProfiles = profiles.filter((profile) => profile && profile.identityStatus !== 'to_add');
+    const visibleProfiles = profiles.filter((profile) => {
+      if (!profile || profile.identityStatus === 'to_add') return false;
+      try {
+        return normalizeContactName(profile.nickname.replace(/ — Por confirmar$/, '')).lookup.includes(search.lookup);
+      } catch { return false; }
+    });
     const profileById = new Map(visibleProfiles.map((profile) => [profile.guestId, profile]));
     const guests = [];
     const rendered = new Set();
@@ -552,7 +604,7 @@ export const createHandler = ({
       });
     }
     guests.sort((left, right) => left.nickname.localeCompare(right.nickname));
-    return jsonResponse(200, { guests });
+    return jsonResponse(200, { guests: guests.slice(0, 10) });
   };
 
   const rsvpForGuest = async (guestId) => {
@@ -703,7 +755,8 @@ export const createHandler = ({
     const retrieval = body.mode === 'retrieve';
     const existingResponse = retrieval ? await rsvpForGuest(guest.guestId) : null;
     if (retrieval && !existingResponse) throw new ApiError(409, 'registration_required');
-    const response = retrieval ? null : responseChoices(body, config.days);
+    const recovery = body.mode === 'recover';
+    const response = retrieval || recovery ? null : responseChoices(body, config.days);
     if (response) validateRestaurantChoices(response.restaurantChoices, config.restaurantChoices);
     const pendingKey = { pk: `GUEST#${guest.guestId}`, sk: 'PENDING_REGISTRATION' };
     const pending = (await ddb.send(new GetCommand({ TableName: env.RSVP_TABLE, Key: pendingKey, ConsistentRead: true }))).Item;
@@ -721,7 +774,7 @@ export const createHandler = ({
     const signature = createHmac('sha256', await getValidationSecret()).update(signedMessage, 'utf8').digest('base64url');
     const whatsappUrl = new URL(`https://wa.me/${appNumber.slice(1)}`);
     whatsappUrl.searchParams.set('text', `VALIDATION ${signedMessage}&sig=${signature}`);
-    return jsonResponse(200, { mode: retrieval ? 'retrieve' : 'register', whatsappUrl: whatsappUrl.toString(), expiresAt }, { cookies: [await makeSignedCookie('rsvp_registration', { type: 'registration', nonce }, WHATSAPP_TTL_SECONDS)] });
+    return jsonResponse(200, { mode: retrieval ? 'retrieve' : recovery ? 'recover' : 'register', whatsappUrl: whatsappUrl.toString(), expiresAt }, { cookies: [await makeSignedCookie('rsvp_registration', { type: 'registration', nonce }, WHATSAPP_TTL_SECONDS)] });
   };
 
   const rsvpSummary = async () => {
@@ -839,26 +892,75 @@ export const createHandler = ({
     return jsonResponse(200, { status: 'to_add', whatsappUrl: whatsappUrl.toString() });
   };
 
+  const passwordSet = async (event) => {
+    const guest = await authorizedRegistrationGuest(event);
+    const body = parseJsonBody(event);
+    const password = validatePassword(body.password);
+    if (password !== body.confirmPassword) throw new ApiError(400, 'password_confirmation_mismatch');
+    const existing = await getPasswordCredential(guest.guestId);
+    await ddb.send(new PutCommand({
+      TableName: env.RSVP_TABLE,
+      Item: {
+        pk: `GUEST#${guest.guestId}`,
+        sk: 'PASSWORD',
+        entityType: 'passwordCredential',
+        passwordHash: hashPassword(password),
+        createdAt: existing?.createdAt || now(),
+        updatedAt: now(),
+      },
+    }));
+    const sessionCookie = await issueSessionCookie(guest);
+    return jsonResponse(200, { saved: true, passwordConfigured: true, nickname: guest.nickname }, {
+      cookies: [sessionCookie, clearCookie('rsvp_registration'), clearCookie('rsvp_webauthn')],
+    });
+  };
+
+  const passwordRemove = async (event) => {
+    const guest = await authorizedRegistrationGuest(event);
+    await ddb.send(new DeleteCommand({ TableName: env.RSVP_TABLE, Key: { pk: `GUEST#${guest.guestId}`, sk: 'PASSWORD' } }));
+    return jsonResponse(200, { removed: true, passwordConfigured: false });
+  };
+
+  const passwordLogin = async (event) => {
+    await requireTriviaGate(event);
+    const body = parseJsonBody(event);
+    const guest = await getGuest(validGuestId(body.guestId));
+    const credential = await getPasswordCredential(guest.guestId);
+    if (!credential || !verifyPassword(body.password, credential.passwordHash)) throw new ApiError(401, 'password_verification_failed');
+    return jsonResponse(200, { authenticated: true, nickname: guest.nickname }, {
+      cookies: [await issueSessionCookie(guest), clearCookie('rsvp_registration'), clearCookie('rsvp_webauthn')],
+    });
+  };
+
   const authStart = async (event) => {
     await requireTriviaGate(event);
     const { guestId: requestedGuestId } = parseJsonBody(event);
     const guest = await getGuest(validGuestId(requestedGuestId));
     const credentials = await getCredentials(guest.guestId);
-    if (credentials.length === 0) {
+    const passwordCredential = await getPasswordCredential(guest.guestId);
+    if (credentials.length === 0 && !passwordCredential) {
       const hasResponse = Boolean(await rsvpForGuest(guest.guestId));
       return jsonResponse(200, { mode: hasResponse ? 'whatsapp-retrieve' : 'whatsapp-rsvp', ...(await rsvpConfig()) });
     }
-
-    const options = await webauthn.generateAuthenticationOptions({
-      rpID: env.WEBAUTHN_RP_ID,
-      userVerification: 'required',
-      allowCredentials: credentials.map((credential) => ({
-        id: credential.credentialId,
-        transports: credential.transports || [],
-      })),
-    });
-    const cookie = await createWebauthnFlow(guest.guestId, 'login', options);
-    return jsonResponse(200, { mode: 'passkey', options }, { cookies: [cookie] });
+    let options;
+    let cookies = [];
+    if (credentials.length > 0) {
+      options = await webauthn.generateAuthenticationOptions({
+        rpID: env.WEBAUTHN_RP_ID,
+        userVerification: 'required',
+        allowCredentials: credentials.map((credential) => ({
+          id: credential.credentialId,
+          transports: credential.transports || [],
+        })),
+      });
+      cookies = [await createWebauthnFlow(guest.guestId, 'login', options)];
+    }
+    const methods = { passkey: credentials.length > 0, password: Boolean(passwordCredential) };
+    return jsonResponse(200, {
+      mode: methods.passkey && methods.password ? 'credentials' : methods.passkey ? 'passkey' : 'password',
+      methods,
+      ...(options ? { options } : {}),
+    }, { cookies });
   };
 
   const getRegistrationChallenge = async (nonce) => {
@@ -1120,7 +1222,8 @@ export const createHandler = ({
       await requireCaptchaGate(event);
       const captchaCookies = [];
       const groupId = new URLSearchParams(event.rawQueryString || '').get('group') || '';
-      const response = await listGuests(groupId);
+      const query = new URLSearchParams(event.rawQueryString || '').get('q') || '';
+      const response = await listGuests(groupId, query);
       if (captchaCookies.length > 0) response.cookies = captchaCookies;
       return response;
     }
@@ -1143,6 +1246,9 @@ export const createHandler = ({
     if (path === '/api/admin/settings' && method === 'PUT') return saveAdminSettings(event);
     if (path === '/api/admin/groups' && method === 'GET') return adminGroups(event);
     if (path === '/api/auth/start' && method === 'POST') return authStart(event);
+    if (path === '/api/auth/password/login' && method === 'POST') return passwordLogin(event);
+    if (path === '/api/auth/password' && method === 'POST') return passwordSet(event);
+    if (path === '/api/auth/password' && method === 'DELETE') return passwordRemove(event);
     if (path === '/api/register/start' && method === 'POST') return startFriendRegistration(event);
     if (path === '/api/register/status' && method === 'GET') return registrationStatus(event);
     if (path === '/api/phone/register' && method === 'POST') return registerPhoneWebhook(event);

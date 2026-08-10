@@ -4,6 +4,7 @@ import { startAuthentication, startRegistration } from '@simplewebauthn/browser'
 const elements = {
   guestSection: document.querySelector('#guest-section'),
   guestList: document.querySelector('#guest-list'),
+  guestSearch: document.querySelector('#guest-search'),
   groupPicker: document.querySelector('#group-picker'),
   groupSelect: document.querySelector('#group-select'),
   validatedContent: document.querySelector('#validated-content'),
@@ -23,6 +24,13 @@ const elements = {
   selectedName: document.querySelector('#selected-name'),
   status: document.querySelector('#status'),
   waitingIndicator: document.querySelector('#waiting-indicator'),
+  credentialActions: document.querySelector('#credential-actions'),
+  usePasskey: document.querySelector('#use-passkey'),
+  usePassword: document.querySelector('#use-password'),
+  passwordLoginForm: document.querySelector('#password-login-form'),
+  passwordLoginInput: document.querySelector('#password-login-input'),
+  passwordRecovery: document.querySelector('#password-recovery'),
+  passwordLoginStatus: document.querySelector('#password-login-status'),
   whatsappPanel: document.querySelector('#whatsapp-panel'),
   qrCode: document.querySelector('#qr-code'),
   whatsappLink: document.querySelector('#whatsapp-link'),
@@ -47,6 +55,11 @@ const elements = {
   whatsappRestaurantChoices: document.querySelector('#whatsapp-restaurant-choices'),
   availabilityDays: document.querySelector('#availability-days'),
   addPasskey: document.querySelector('#add-passkey'),
+  passwordForm: document.querySelector('#password-form'),
+  passwordNew: document.querySelector('#password-new'),
+  passwordConfirm: document.querySelector('#password-confirm'),
+  passwordRemove: document.querySelector('#password-remove'),
+  passwordStatus: document.querySelector('#password-status'),
   logout: document.querySelector('#logout'),
   registrationStatus: document.querySelector('#registration-status'),
   newContactForm: document.querySelector('#new-contact-form'),
@@ -70,6 +83,7 @@ let selectedGroup = '';
 let pollGeneration = 0;
 let triviaChallenge = '';
 let triviaToken = '';
+let selectedAuthResult = null;
 
 const setWaiting = (waiting) => {
   elements.waitingIndicator.hidden = !waiting;
@@ -104,6 +118,7 @@ const showAuthenticated = (nickname, message = '', passkeyLabel = 'Adicionar out
   elements.sessionSection.hidden = false;
   elements.sessionName.textContent = nickname;
   elements.sessionStatus.textContent = message;
+  elements.passwordForm.reset();
   elements.addPasskey.textContent = passkeyLabel;
   loadRsvpForm();
   loadAdmin();
@@ -297,6 +312,14 @@ const showFlow = () => {
   elements.createPasskey.hidden = true;
   elements.whatsappRsvpForm.hidden = true;
   elements.retryRegistration.hidden = true;
+  elements.credentialActions.hidden = true;
+  elements.usePasskey.hidden = true;
+  elements.usePassword.hidden = true;
+  elements.passwordLoginForm.hidden = true;
+  elements.passwordLoginForm.querySelector('label').hidden = false;
+  elements.passwordLoginInput.hidden = false;
+  elements.passwordLoginForm.querySelector('button[type="submit"]').hidden = false;
+  elements.passwordLoginStatus.textContent = '';
 };
 
 const showValidatedGuestSelection = () => {
@@ -336,6 +359,10 @@ const showRegistrationWhatsapp = async (result) => {
           showAuthenticated(selectedGuest?.nickname || 'Registo', 'Já tinhas enviado uma resposta. As tuas escolhas foram carregadas; podes revê-las ou editá-las. Cria uma chave de acesso para voltares mais facilmente.', 'Criar uma chave de acesso');
           return;
         }
+        if (result.mode === 'recover') {
+          showAuthenticated(selectedGuest?.nickname || 'Registo', 'WhatsApp confirmado. Podes agora criar uma palavra-passe ou adicionar uma chave de acesso.');
+          return;
+        }
         elements.status.textContent = 'Disponibilidade recebida. Quer criar uma chave de acesso para editar a resposta?';
         elements.actions.hidden = false;
         elements.createPasskey.hidden = false;
@@ -358,7 +385,7 @@ const showRegistrationWhatsapp = async (result) => {
 const startGuestRegistration = async (mode = 'register') => {
   elements.registrationStatus.textContent = 'A preparar a verificação pelo WhatsApp…';
   try {
-    await showRegistrationWhatsapp(await post('/api/rsvp/whatsapp/start', mode === 'retrieve'
+    await showRegistrationWhatsapp(await post('/api/rsvp/whatsapp/start', mode === 'retrieve' || mode === 'recover'
       ? { guestId: selectedGuest.id, mode }
       : { guestId: selectedGuest.id }));
   } catch (error) { elements.registrationStatus.textContent = readableError(error); }
@@ -371,6 +398,10 @@ const readableError = (error) => {
   if (error.code === 'whatsapp_unavailable') return 'O início de sessão pelo WhatsApp ainda não está configurado.';
   if (error.code === 'authentication_challenge_expired') return 'Esta tentativa de início de sessão expirou. Tente novamente.';
   if (error.code === 'passkey_verification_failed') return 'Não foi possível verificar essa chave de acesso.';
+  if (error.code === 'password_verification_failed') return 'Palavra-passe incorreta. Podes recuperar pelo WhatsApp.';
+  if (error.code === 'password_confirmation_mismatch') return 'As palavras-passe não coincidem.';
+  if (error.code === 'invalid_password') return 'A palavra-passe deve ter entre 8 e 128 caracteres.';
+  if (error.code === 'password_not_configured') return 'Este nome ainda não tem palavra-passe configurada.';
   if (error.code === 'registration_required') return 'Este contacto precisa de concluir o registo.';
   if (error.code === 'registration_already_pending') return 'Já existe uma validação WhatsApp pendente para este contacto. Continua a utilizar a mensagem anterior.';
   if (error.code === 'invalid_link_target') return 'Esse membro não pode ser ligado.';
@@ -412,6 +443,30 @@ const usePasskey = async (options) => {
     showAuthenticated(result.nickname);
   } catch (error) {
     elements.status.textContent = readableError(error);
+    if (!selectedAuthResult?.methods?.password) {
+      elements.passwordLoginForm.querySelector('label').hidden = true;
+      elements.passwordLoginInput.hidden = true;
+      elements.passwordLoginForm.querySelector('button[type="submit"]').hidden = true;
+      elements.passwordLoginStatus.textContent = 'Podes recuperar o acesso pelo WhatsApp.';
+    }
+    elements.passwordLoginForm.hidden = false;
+  }
+};
+
+const showPasswordLogin = () => {
+  elements.credentialActions.hidden = true;
+  elements.passwordLoginForm.hidden = false;
+  elements.passwordLoginInput.focus();
+};
+
+const loginWithPassword = async (event) => {
+  event.preventDefault();
+  elements.passwordLoginStatus.textContent = 'A verificar…';
+  try {
+    const result = await post('/api/auth/password/login', { guestId: selectedGuest.id, password: elements.passwordLoginInput.value });
+    showAuthenticated(result.nickname);
+  } catch (error) {
+    elements.passwordLoginStatus.textContent = readableError(error);
   }
 };
 
@@ -422,7 +477,14 @@ const selectGuest = async (guest) => {
   elements.status.textContent = 'A verificar o seu convite…';
   try {
     const result = await post('/api/auth/start', { guestId: guest.id });
+    selectedAuthResult = result;
     if (result.mode === 'passkey') await usePasskey(result.options);
+    if (result.mode === 'password') showPasswordLogin();
+    if (result.mode === 'credentials') {
+      elements.credentialActions.hidden = false;
+      elements.usePasskey.hidden = !result.methods.passkey;
+      elements.usePassword.hidden = !result.methods.password;
+    }
     if (result.mode === 'whatsapp-rsvp') {
       elements.status.textContent = 'Preencha a disponibilidade para continuar.';
       openWhatsappRsvpForm(result);
@@ -436,12 +498,17 @@ const selectGuest = async (guest) => {
   }
 };
 
-const loadGuests = async (turnstileToken = '') => {
+const loadGuests = async (turnstileToken = '', query = elements.guestSearch.value.trim()) => {
   elements.guestList.replaceChildren();
+  if (!query) {
+    elements.guestList.textContent = 'Começa a escrever para procurar o teu nome.';
+    return;
+  }
   try {
     const params = new URLSearchParams();
     if (selectedGroup) params.set('group', selectedGroup);
-    const path = `/api/guests${params.size ? `?${params}` : ''}`;
+    params.set('q', query);
+    const path = `/api/guests?${params}`;
     const { guests } = await api(path, turnstileToken
       ? { headers: { 'x-turnstile-token': turnstileToken } }
       : {});
@@ -524,6 +591,9 @@ const completeValidation = async () => {
   elements.triviaStatus.hidden = true;
   elements.validatedContent.hidden = false;
   elements.newContactForm.hidden = false;
+  elements.guestSearch.value = '';
+  elements.guestSearch.focus();
+  elements.guestList.textContent = 'Começa a escrever para procurar o teu nome.';
   await loadGroups();
 };
 
@@ -589,6 +659,10 @@ const loadTurnstile = async () => {
 elements.backButton.addEventListener('click', () => {
   showValidatedGuestSelection();
 });
+elements.usePasskey.addEventListener('click', () => usePasskey(selectedAuthResult.options));
+elements.usePassword.addEventListener('click', showPasswordLogin);
+elements.passwordLoginForm.addEventListener('submit', loginWithPassword);
+elements.passwordRecovery.addEventListener('click', () => startGuestRegistration('recover'));
 elements.createPasskey.addEventListener('click', registerPasskey);
 elements.addPasskey.addEventListener('click', registerPasskey);
 elements.logout.addEventListener('click', async () => {
@@ -608,7 +682,11 @@ elements.toggleNewContact.addEventListener('click', () => {
 });
 elements.groupSelect.addEventListener('change', async () => {
   selectedGroup = elements.groupSelect.value;
-  await loadGuests();
+  elements.guestSearch.value = '';
+  await loadGuests('', '');
+});
+elements.guestSearch.addEventListener('input', async () => {
+  await loadGuests('', elements.guestSearch.value.trim());
 });
 elements.rsvpForm.addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -690,6 +768,23 @@ elements.newContactForm.addEventListener('submit', async (event) => {
     elements.newContactWhatsappLink.href = result.whatsappUrl;
     await QRCode.toCanvas(elements.newContactQrCanvas, result.whatsappUrl, { width: 228, margin: 1 });
   } catch (error) { elements.registrationStatus.textContent = readableError(error); }
+});
+
+elements.passwordForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  elements.passwordStatus.textContent = 'A guardar…';
+  try {
+    await post('/api/auth/password', { password: elements.passwordNew.value, confirmPassword: elements.passwordConfirm.value });
+    elements.passwordForm.reset();
+    elements.passwordStatus.textContent = 'Palavra-passe guardada.';
+  } catch (error) { elements.passwordStatus.textContent = readableError(error); }
+});
+elements.passwordRemove.addEventListener('click', async () => {
+  elements.passwordStatus.textContent = 'A remover…';
+  try {
+    await del('/api/auth/password');
+    elements.passwordStatus.textContent = 'Palavra-passe removida.';
+  } catch (error) { elements.passwordStatus.textContent = readableError(error); }
 });
 
 const initialize = async () => {

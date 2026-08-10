@@ -5,9 +5,11 @@ import { processPhoneRegistration } from '../lambda/phone-registration.mjs';
 import {
   contentTypeFor,
   createHandler,
+  hashPassword,
   safeObjectKey,
   secretsMatch,
   signToken,
+  verifyPassword,
   verifyToken,
 } from '../lambda/index.mjs';
 
@@ -92,6 +94,10 @@ class FakeDdb {
     if (name === 'PutCommand') {
       if (input.ConditionExpression && this.get(input.Item)) throw conditionalError();
       this.items.set(keyOf(input.Item), structuredClone(input.Item));
+      return {};
+    }
+    if (name === 'DeleteCommand') {
+      this.items.delete(keyOf(input.Key));
       return {};
     }
     if (name === 'UpdateCommand') {
@@ -266,11 +272,25 @@ test('health endpoint is protected', async () => {
 
 test('public guest directory returns nicknames and IDs but no private profile data', async () => {
   const { handler } = makeHandler({ items: [guest()] });
-  const response = await handler(request('/api/guests'));
+  const response = await handler({ ...request('/api/guests'), rawQueryString: 'q=ton' });
   assert.equal(response.statusCode, 200);
   const serialized = response.body;
   assert.deepEqual(JSON.parse(serialized), { guests: [{ id: guest().guestId, nickname: 'Toninho', registrationRequired: false }] });
   assert.doesNotMatch(serialized, /351911111111|contact-pepper/);
+});
+
+test('guest search requires a query and caps public matches at ten', async () => {
+  const profiles = Array.from({ length: 12 }, (_, index) => guest({
+    guestId: `123e4567-e89b-42d3-a456-4266141740${String(index).padStart(2, '0')}`,
+    pk: `GUEST#123e4567-e89b-42d3-a456-4266141740${String(index).padStart(2, '0')}`,
+    nickname: `Guest ${index}`,
+  }));
+  const { handler } = makeHandler({ items: profiles });
+  const missing = await handler(request('/api/guests'));
+  assert.equal(missing.statusCode, 400);
+  const response = await handler({ ...request('/api/guests'), rawQueryString: 'q=guest' });
+  assert.equal(response.statusCode, 200);
+  assert.equal(JSON.parse(response.body).guests.length, 10);
 });
 
 test('groups filter the guest directory through independent many-to-many membership records', async () => {
@@ -284,9 +304,9 @@ test('groups filter the guest directory through independent many-to-many members
   const { handler } = makeHandler({ items: [guest(), otherGuest, group, membership] });
   const groups = await handler(request('/api/groups'));
   assert.deepEqual(JSON.parse(groups.body), { groups: [{ id: 'family', name: 'Família' }] });
-  const response = await handler({ ...request('/api/guests'), rawQueryString: 'group=family' });
+  const response = await handler({ ...request('/api/guests'), rawQueryString: 'group=family&q=ton' });
   assert.deepEqual(JSON.parse(response.body), { guests: [{ id: guest().guestId, nickname: 'Toninho', registrationRequired: false }] });
-  const rejected = await handler({ ...request('/api/guests'), rawQueryString: 'group=missing' });
+  const rejected = await handler({ ...request('/api/guests'), rawQueryString: 'group=missing&q=ton' });
   assert.equal(rejected.statusCode, 404);
 });
 
@@ -366,7 +386,7 @@ test('a member can link another member through signed WhatsApp approval and sync
   assert.equal(saved.statusCode, 200);
   assert.deepEqual(ddb.get({ pk: `RSVP#${memberB.guestId}`, sk: 'RESPONSE' }).availableDays, ['20 December 2026']);
   assert.equal(ddb.get({ pk: `RSVP#${memberB.guestId}`, sk: 'RESPONSE' }).guestCount, 2);
-  const directory = JSON.parse((await handler(request('/api/guests'))).body);
+  const directory = JSON.parse((await handler({ ...request('/api/guests'), rawQueryString: 'q=ana' })).body);
   assert.deepEqual(directory.guests.find((entry) => entry.linked), {
     id: memberA.guestId,
     nickname: 'Ana & Bruno',
@@ -411,6 +431,49 @@ test('a guest with a passkey can retrieve the existing RSVP after passkey login'
   assert.deepEqual(JSON.parse(retrieved.body).response.availableDays, ['19 December 2026']);
 });
 
+test('auth start advertises both passkey and password without starting a QR flow', async () => {
+  const profile = guest({ sender: 'António Costa', identityStatus: 'confirmed' });
+  const credential = { pk: `GUEST#${profile.guestId}`, sk: 'CREDENTIAL#credential-one', entityType: 'passkey', credentialId: 'credential-one', publicKey: Buffer.from([1, 2, 3]).toString('base64url'), counter: 0, transports: ['internal'] };
+  const password = { pk: `GUEST#${profile.guestId}`, sk: 'PASSWORD', entityType: 'passwordCredential', passwordHash: hashPassword('password-one'), createdAt: fixedNow };
+  const { handler } = makeHandler({ items: [profile, credential, password] });
+  const started = await handler(request('/api/auth/start', { method: 'POST', body: { guestId: profile.guestId } }));
+  const payload = JSON.parse(started.body);
+  assert.equal(payload.mode, 'credentials');
+  assert.deepEqual(payload.methods, { passkey: true, password: true });
+  assert.ok(started.cookies?.some((cookie) => cookie.startsWith('rsvp_webauthn=')));
+});
+
+test('password hashes are salted and verify without exposing the plaintext', () => {
+  const first = hashPassword('correct horse battery staple');
+  const second = hashPassword('correct horse battery staple');
+  assert.notEqual(first, second);
+  assert.equal(verifyPassword('correct horse battery staple', first), true);
+  assert.equal(verifyPassword('wrong password', first), false);
+  assert.throws(() => hashPassword('short'), /invalid_password/);
+});
+
+test('a guest can set, use, replace, and remove a password', async () => {
+  const profile = guest({ sender: 'António Costa', identityStatus: 'confirmed' });
+  const { handler, ddb } = makeHandler({ items: [profile] });
+  const session = signToken({ type: 'session', guestId: profile.guestId, sessionVersion: 1, exp: fixedNow + 600 }, values['/rsvp/session-secret']);
+  const set = await handler(request('/api/auth/password', { method: 'POST', cookies: [`rsvp_session=${session}`], body: { password: 'password-one', confirmPassword: 'password-one' } }));
+  assert.equal(set.statusCode, 200);
+  assert.equal(ddb.get({ pk: `GUEST#${profile.guestId}`, sk: 'PASSWORD' }).entityType, 'passwordCredential');
+  assert.equal(JSON.stringify(set.body).includes('password-one'), false);
+  const started = await handler(request('/api/auth/start', { method: 'POST', body: { guestId: profile.guestId } }));
+  assert.equal(JSON.parse(started.body).mode, 'password');
+  assert.equal(started.cookies, undefined);
+  const loggedIn = await handler(request('/api/auth/password/login', { method: 'POST', body: { guestId: profile.guestId, password: 'password-one' } }));
+  assert.equal(loggedIn.statusCode, 200);
+  const changed = await handler(request('/api/auth/password', { method: 'POST', cookies: [cookieFrom(loggedIn, 'rsvp_session')], body: { password: 'password-two', confirmPassword: 'password-two' } }));
+  assert.equal(changed.statusCode, 200);
+  const oldLogin = await handler(request('/api/auth/password/login', { method: 'POST', body: { guestId: profile.guestId, password: 'password-one' } }));
+  assert.equal(oldLogin.statusCode, 401);
+  const removed = await handler(request('/api/auth/password', { method: 'DELETE', cookies: [cookieFrom(changed, 'rsvp_session')] }));
+  assert.equal(removed.statusCode, 200);
+  assert.equal(ddb.get({ pk: `GUEST#${profile.guestId}`, sk: 'PASSWORD' }), undefined);
+});
+
 test('an RSVP can explicitly record no available dates', async () => {
   const profile = guest();
   const { handler } = makeHandler({ items: [profile] });
@@ -453,12 +516,12 @@ test('guest directory rejects missing CAPTCHA gate and accepts a valid Turnstile
   const rejected = await handler(request('/api/guests', { cookies: [] }));
   assert.equal(rejected.statusCode, 403);
   assert.equal(JSON.parse(rejected.body).error, 'captcha_required');
-  const accepted = await handler(request('/api/guests', {
+  const accepted = await handler({ ...request('/api/guests', {
     cookies: [
       `rsvp_captcha=${signToken({ type: 'captcha', exp: fixedNow + 600 }, values['/rsvp/session-secret'])}`,
       `rsvp_trivia=${signToken({ type: 'trivia', answered: true, exp: fixedNow + 600 }, values['/rsvp/session-secret'])}`,
     ],
-  }));
+  }), rawQueryString: 'q=ton' });
   assert.equal(accepted.statusCode, 200);
 });
 
