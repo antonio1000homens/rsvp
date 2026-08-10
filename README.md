@@ -201,4 +201,17 @@ The SSM parameters have separate purposes:
 - `/rsvp/turnstile-secret` is the private server-side validation key.
 - `/rsvp/gemini-api-key` authenticates the background event-summary worker with Gemini. It was populated from local Bitwarden access during deployment; GitHub Actions does **not** currently refresh it because the production environment is missing the required `BWS_ACCESS_TOKEN` secret. `BW_GEMINI` identifies the Bitwarden item but is not itself sufficient to retrieve its value.
 
+To diagnose WhatsApp validation matching, inspect the phone processor logs:
+
+```bash
+AWS_PROFILE=windsor aws logs filter-log-events \
+  --region eu-west-2 \
+  --log-group-name /aws/lambda/rsvp-phone-processor \
+  --filter-pattern '"validation_request"' \
+  --query 'events[].message' \
+  --output text
+```
+
+Each structured entry includes the received `sender`, the message `contactName`, the expected public `nickname`/`expectedSender` when the challenge exists, and the `outcome` (`created`, `sender_mismatch`, or another validation result). Nonces, signatures, and complete WhatsApp messages are not logged.
+
 Do not put SSM values, phone numbers, callback payloads, cookies, or passkey data in source files, GitHub variables, issue comments, or deployment logs.
