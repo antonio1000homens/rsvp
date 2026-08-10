@@ -193,6 +193,16 @@
             <button type="submit">Guardar nomes</button>
             <p id="admin-guest-status" class="status" role="status" aria-live="polite"></p>
           </form>
+          <form id="admin-add-guest-form" class="rsvp-form">
+            <h3>Adicionar convidado</h3>
+            <label for="admin-new-guest-nickname">Nome público</label>
+            <input id="admin-new-guest-nickname" type="text" maxlength="120" required>
+            <label for="admin-new-guest-sender">Nome do remetente WhatsApp</label>
+            <input id="admin-new-guest-sender" type="text" maxlength="240" required>
+            <button type="submit">Adicionar convidado</button>
+            <p id="admin-add-guest-status" class="status" role="status" aria-live="polite"></p>
+          </form>
+          <button id="admin-remove-guest" type="button" class="secondary">Remover convidado seleccionado</button>
           <p id="admin-groups" class="status"></p>
         </details>
         <div class="actions">

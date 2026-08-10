@@ -931,6 +931,43 @@ export const createHandler = ({
     return jsonResponse(200, { saved: true, guest: { id: guest.guestId, nickname: nickname.display, sender: sender.display, identityStatus: guest.identityStatus || 'unconfirmed' } });
   };
 
+  const addAdminGuest = async (event) => {
+    await requireAdmin(event);
+    const body = parseJsonBody(event);
+    let nickname;
+    let sender;
+    try {
+      nickname = normalizeNickname(body.nickname);
+      sender = normalizeContactName(body.sender);
+    } catch { throw new ApiError(400, 'invalid_guest_names'); }
+    const existing = (await ddb.send(new ScanCommand({
+      TableName: env.RSVP_TABLE,
+      FilterExpression: 'sk = :profile AND entityType = :guest AND nicknameLookup = :lookup',
+      ExpressionAttributeValues: { ':profile': 'PROFILE', ':guest': 'guest', ':lookup': nickname.lookup },
+    }))).Items?.[0];
+    if (existing?.enabled) throw new ApiError(409, 'duplicate_guest_nickname');
+    const timestamp = now();
+    const guestId = existing?.guestId || randomUUID();
+    await ddb.send(new PutCommand({
+      TableName: env.RSVP_TABLE,
+      Item: {
+        ...(existing || {}), pk: `GUEST#${guestId}`, sk: 'PROFILE', entityType: 'guest', guestId,
+        nickname: nickname.display, nicknameLookup: nickname.lookup, sender: sender.display, senderLookup: sender.lookup,
+        identityStatus: existing?.identityStatus === 'confirmed' ? 'confirmed' : 'unconfirmed', enabled: true,
+        sessionVersion: Number(existing?.sessionVersion || 1) + (existing ? 1 : 0), createdAt: existing?.createdAt || timestamp, updatedAt: timestamp,
+      },
+    }));
+    return jsonResponse(200, { saved: true, guest: { id: guestId, nickname: nickname.display, sender: sender.display } });
+  };
+
+  const removeAdminGuest = async (event) => {
+    await requireAdmin(event);
+    const body = parseJsonBody(event);
+    const guest = await getGuest(validGuestId(body.guestId));
+    await ddb.send(new PutCommand({ TableName: env.RSVP_TABLE, Item: { ...guest, enabled: false, sessionVersion: Number(guest.sessionVersion || 1) + 1, updatedAt: now() } }));
+    return jsonResponse(200, { removed: true, guestId: guest.guestId });
+  };
+
   const requestNewContact = async (event) => {
     await requireTriviaGate(event);
     const body = parseJsonBody(event);
@@ -1315,6 +1352,8 @@ export const createHandler = ({
     if (path === '/api/admin/groups' && method === 'GET') return adminGroups(event);
     if (path === '/api/admin/guests' && method === 'GET') return adminGuests(event);
     if (path === '/api/admin/guests' && method === 'PUT') return saveAdminGuest(event);
+    if (path === '/api/admin/guests' && method === 'POST') return addAdminGuest(event);
+    if (path === '/api/admin/guests' && method === 'DELETE') return removeAdminGuest(event);
     if (path === '/api/auth/start' && method === 'POST') return authStart(event);
     if (path === '/api/auth/password/login' && method === 'POST') return passwordLogin(event);
     if (path === '/api/auth/password' && method === 'POST') return passwordSet(event);

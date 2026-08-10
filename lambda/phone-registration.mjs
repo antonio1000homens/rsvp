@@ -11,6 +11,7 @@ const conditionalFailure = (error) =>
 // Business outcomes are acknowledged by SQS. Only infrastructure failures throw
 // and are retried/redriven by the queue.
 export const processPhoneRegistration = async ({ sender, message, ddb, tableName, validationSecret, now, onConfirmedRegistration = null }) => {
+  const logValidation = (fields) => console.info(JSON.stringify({ event: 'validation_request', ...fields }));
   let normalizedSender;
   try { normalizedSender = normalizeContactName(sender); } catch { return 'invalid_sender'; }
   const match = VALIDATION_MESSAGE.exec(String(message || ''));
@@ -20,13 +21,25 @@ export const processPhoneRegistration = async ({ sender, message, ddb, tableName
   const [, encodedContact, nonce, signature] = match;
   const signedMessage = `contact=${encodedContact}&nonce=${nonce}`;
   const expectedSignature = createHmac('sha256', validationSecret).update(signedMessage, 'utf8').digest('base64url');
-  if (!safeEqual(signature, expectedSignature)) return 'invalid_validation_signature';
+  if (!safeEqual(signature, expectedSignature)) {
+    let contactName = '';
+    try { contactName = decodeURIComponent(encodedContact); } catch { /* keep it empty */ }
+    logValidation({ sender, contactName, outcome: 'invalid_validation_signature' });
+    return 'invalid_validation_signature';
+  }
   let decodedSender;
   try { decodedSender = normalizeContactName(decodeURIComponent(encodedContact)); } catch { return 'invalid_validation_message'; }
 
   const key = { pk: `REGISTRATION#${tokenHash(nonce)}`, sk: 'CHALLENGE' };
   const challenge = (await ddb.send(new GetCommand({ TableName: tableName, Key: key, ConsistentRead: true }))).Item;
-  if (!challenge || challenge.status !== 'pending' || challenge.expiresAt < now) return 'registration_challenge_unavailable';
+  if (!challenge || challenge.status !== 'pending' || challenge.expiresAt < now) {
+    logValidation({ sender, contactName: decodedSender.display, outcome: 'registration_challenge_unavailable' });
+    return 'registration_challenge_unavailable';
+  }
+  const selectedGuest = (await ddb.send(new GetCommand({
+    TableName: tableName, Key: { pk: `GUEST#${challenge.guestId}`, sk: 'PROFILE' }, ConsistentRead: true,
+  }))).Item;
+  const nickname = selectedGuest?.nickname ? String(selectedGuest.nickname).replace(/ — Por confirmar$/, '') : '';
   if (challenge.senderLookup !== decodedSender.lookup || normalizedSender.lookup !== challenge.senderLookup) {
     try {
       await ddb.send(new UpdateCommand({
@@ -37,13 +50,13 @@ export const processPhoneRegistration = async ({ sender, message, ddb, tableName
         ExpressionAttributeValues: { ':error': 'sender_mismatch', ':pending': 'pending', ':now': now },
       }));
     } catch (error) { if (!conditionalFailure(error)) throw error; }
+    logValidation({ sender, contactName: decodedSender.display, nickname, expectedSender: challenge.sender, outcome: 'sender_mismatch' });
     return 'sender_mismatch';
   }
-
-  const selectedGuest = (await ddb.send(new GetCommand({
-    TableName: tableName, Key: { pk: `GUEST#${challenge.guestId}`, sk: 'PROFILE' }, ConsistentRead: true,
-  }))).Item;
-  if (!selectedGuest) return 'registration_unavailable';
+  if (!selectedGuest) {
+    logValidation({ sender, contactName: decodedSender.display, nickname, outcome: 'registration_unavailable' });
+    return 'registration_unavailable';
+  }
   try {
     await ddb.send(new TransactWriteCommand({ TransactItems: [
       { Update: { TableName: tableName, Key: key, UpdateExpression: 'SET #status = :created, approvedAt = :now', ConditionExpression: '#status = :pending AND expiresAt >= :now', ExpressionAttributeNames: { '#status': 'status' }, ExpressionAttributeValues: { ':created': 'created', ':pending': 'pending', ':now': now } } },
@@ -52,9 +65,13 @@ export const processPhoneRegistration = async ({ sender, message, ddb, tableName
       ...(challenge.response ? [{ Put: { TableName: tableName, Item: { pk: `RSVP#${selectedGuest.guestId}`, sk: 'RESPONSE', entityType: 'rsvpResponse', guestId: selectedGuest.guestId, ...challenge.response, updatedAt: now } } }] : []),
     ] }));
   } catch (error) {
-    if (conditionalFailure(error)) return 'registration_unavailable';
+    if (conditionalFailure(error)) {
+      logValidation({ sender, contactName: decodedSender.display, nickname, outcome: 'registration_unavailable' });
+      return 'registration_unavailable';
+    }
     throw error;
   }
+  logValidation({ sender, contactName: decodedSender.display, nickname, expectedSender: challenge.sender, outcome: 'created' });
   if (onConfirmedRegistration) await onConfirmedRegistration({ nickname: String(selectedGuest.nickname || '').replace(/ — Por confirmar$/, '') });
   return 'created';
 };

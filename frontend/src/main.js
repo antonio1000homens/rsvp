@@ -60,6 +60,11 @@ const elements = {
   adminGuestNickname: document.querySelector('#admin-guest-nickname'),
   adminGuestSender: document.querySelector('#admin-guest-sender'),
   adminGuestStatus: document.querySelector('#admin-guest-status'),
+  adminAddGuestForm: document.querySelector('#admin-add-guest-form'),
+  adminNewGuestNickname: document.querySelector('#admin-new-guest-nickname'),
+  adminNewGuestSender: document.querySelector('#admin-new-guest-sender'),
+  adminAddGuestStatus: document.querySelector('#admin-add-guest-status'),
+  adminRemoveGuest: document.querySelector('#admin-remove-guest'),
   adminGroups: document.querySelector('#admin-groups'),
   rsvpForm: document.querySelector('#rsvp-form'),
   whatsappRsvpForm: document.querySelector('#whatsapp-rsvp-form'),
@@ -276,17 +281,22 @@ const loadAdmin = async () => {
     elements.adminGroups.textContent = groups.length ? groups.map((group) => `${group.name}: ${group.members} membro(s)`).join(' · ') : 'Ainda não existem grupos.';
     const summary = await api('/api/admin/summary');
     elements.adminSummary.value = summary.narrative || '';
-    const { guests } = await api('/api/admin/guests');
-    elements.adminGuestSelect.replaceChildren(...guests.map((guest) => new Option(`${guest.nickname} (${guest.sender || 'sem remetente'})`, guest.id)));
-    const selected = guests[0];
-    if (selected) {
-      elements.adminGuestNickname.value = selected.nickname;
-      elements.adminGuestSender.value = selected.sender;
-    }
-    elements.adminGuestSelect._guests = guests;
+    await loadAdminGuests();
   } catch (error) {
     if (error.status !== 403) elements.adminSection.hidden = true;
   }
+};
+
+const loadAdminGuests = async () => {
+  const { guests } = await api('/api/admin/guests');
+  elements.adminGuestSelect.replaceChildren(...guests.map((guest) => new Option(`${guest.nickname} (${guest.sender || 'sem remetente'})`, guest.id)));
+  const selected = guests[0];
+  if (selected) {
+    elements.adminGuestNickname.value = selected.nickname;
+    elements.adminGuestSender.value = selected.sender;
+  }
+  elements.adminGuestSelect._guests = guests;
+  elements.adminRemoveGuest.disabled = !selected;
 };
 
 const loadRsvpSummary = async () => {
@@ -817,6 +827,30 @@ elements.adminGuestForm.addEventListener('submit', async (event) => {
     elements.adminGuestStatus.textContent = '';
     showToast('Nomes guardados.');
   } catch (error) { elements.adminGuestStatus.textContent = readableError(error); }
+});
+elements.adminAddGuestForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  elements.adminAddGuestStatus.textContent = 'A adicionar…';
+  try {
+    await post('/api/admin/guests', { nickname: elements.adminNewGuestNickname.value, sender: elements.adminNewGuestSender.value });
+    elements.adminAddGuestForm.reset();
+    elements.adminAddGuestStatus.textContent = '';
+    showToast('Convidado adicionado.');
+    await loadAdminGuests();
+  } catch (error) { elements.adminAddGuestStatus.textContent = readableError(error); }
+});
+elements.adminRemoveGuest.addEventListener('click', async () => {
+  const guestId = elements.adminGuestSelect.value;
+  if (!guestId || !window.confirm('Remover este convidado da lista pública?')) return;
+  elements.adminRemoveGuest.disabled = true;
+  try {
+    await del('/api/admin/guests', { guestId });
+    showToast('Convidado removido.');
+    await loadAdminGuests();
+  } catch (error) {
+    elements.adminGuestStatus.textContent = readableError(error);
+    elements.adminRemoveGuest.disabled = false;
+  }
 });
 elements.linkCreate.addEventListener('click', async () => {
   if (!elements.linkTarget.value) { elements.linkStatus.textContent = 'Escolhe primeiro o membro a ligar.'; return; }

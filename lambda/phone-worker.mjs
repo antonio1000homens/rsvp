@@ -22,6 +22,7 @@ export const handler = async (event = {}) => {
       let payload;
       try { payload = JSON.parse(record.body); } catch { continue; }
       if (!payload || typeof payload.sender !== 'string' || typeof payload.message !== 'string' || payload.sender.length > 240 || payload.message.length > 4096) continue;
+      if (payload.message.startsWith('VALIDATION ')) console.info(JSON.stringify({ event: 'validation_request_received', sender: payload.sender }));
       const activity = [];
       await processPhoneRegistration({ sender: payload.sender, message: payload.message, ddb, tableName: process.env.RSVP_TABLE, validationSecret: await secret(), now: Math.floor(Date.now() / 1000), onConfirmedRegistration: (registration) => activity.push(registration) });
       if (activity.length && process.env.SUMMARY_QUEUE_URL) {
