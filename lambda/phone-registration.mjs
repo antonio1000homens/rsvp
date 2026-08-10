@@ -75,13 +75,20 @@ const processMemberLink = async ({ sender, match, ddb, tableName, validationSecr
   const targetLink = { pk: `GUEST#${request.targetId}`, sk: 'LINK' };
   const requesterLink = { pk: `GUEST#${request.requesterId}`, sk: 'LINK' };
   const targetResponse = { pk: `RSVP#${request.targetId}`, sk: 'RESPONSE' };
+  const requesterResponse = request.response || (await ddb.send(new GetCommand({
+    TableName: tableName,
+    Key: { pk: `RSVP#${request.requesterId}`, sk: 'RESPONSE' },
+    ConsistentRead: true,
+  }))).Item || null;
   const actions = [
     { Update: { TableName: tableName, Key: requestKey, UpdateExpression: 'SET #status = :active, approvedAt = :now', ConditionExpression: '#status = :pending', ExpressionAttributeNames: { '#status': 'status' }, ExpressionAttributeValues: { ':active': 'active', ':pending': 'pending', ':now': now } } },
     { Update: { TableName: tableName, Key: requesterLink, UpdateExpression: 'SET #status = :active', ConditionExpression: '#status = :pending', ExpressionAttributeNames: { '#status': 'status' }, ExpressionAttributeValues: { ':active': 'active', ':pending': 'pending' } } },
     { Update: { TableName: tableName, Key: targetLink, UpdateExpression: 'SET #status = :active', ConditionExpression: '#status = :pending', ExpressionAttributeNames: { '#status': 'status' }, ExpressionAttributeValues: { ':active': 'active', ':pending': 'pending' } } },
-    { Delete: { TableName: tableName, Key: targetResponse } },
   ];
-  if (request.response) actions.push({ Put: { TableName: tableName, Item: { ...request.response, pk: targetResponse.pk, sk: targetResponse.sk, entityType: 'rsvpResponse', guestId: request.targetId, updatedAt: now } } });
+  if (requesterResponse) {
+    actions.push({ Delete: { TableName: tableName, Key: targetResponse } });
+    actions.push({ Put: { TableName: tableName, Item: { ...requesterResponse, pk: targetResponse.pk, sk: targetResponse.sk, entityType: 'rsvpResponse', guestId: request.targetId, updatedAt: now } } });
+  }
   try {
     await ddb.send(new TransactWriteCommand({ TransactItems: actions }));
   } catch (error) {
