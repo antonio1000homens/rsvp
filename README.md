@@ -199,5 +199,6 @@ The SSM parameters have separate purposes:
 - `/rsvp/whatsapp-number` is the public destination number used in the QR link.
 - `/rsvp/turnstile-site-key` is the public landing-page widget key.
 - `/rsvp/turnstile-secret` is the private server-side validation key.
+- `/rsvp/gemini-api-key` authenticates the background event-summary worker with Gemini. It was populated from local Bitwarden access during deployment; GitHub Actions does **not** currently refresh it because the production environment is missing the required `BWS_ACCESS_TOKEN` secret. `BW_GEMINI` identifies the Bitwarden item but is not itself sufficient to retrieve its value.
 
 Do not put SSM values, phone numbers, callback payloads, cookies, or passkey data in source files, GitHub variables, issue comments, or deployment logs.
