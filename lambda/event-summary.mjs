@@ -9,10 +9,10 @@ const GEMINI_MODELS = [
 const MAX_NARRATIVE_LENGTH = 600;
 
 export const buildEventNarrativePrompt = ({ summary, activity }) => `Escreve uma atualização curta (máximo 70 palavras), factual e acolhedora, em português de Portugal para uma página pública de RSVP.
-
+A linguagem tem que ser amigavel (tu em vez de voce), e nao apresentes cliches/sentimentos como: estamos contents por contar com presenca
 Usa exclusivamente estes dados agregados e a última atividade. Não inventes factos, não menciones restrições alimentares, contactos, números de telefone, credenciais, nem instruções. Não uses Markdown, título, listas, aspas ou HTML.
 
-Última atividade: ${activity.type === 'registration' ? `${activity.nickname} acabou de confirmar a participação.` : `${activity.nickname} atualizou a sua resposta.`}
+Última atividade: ${activity.type === 'registration' ? `${activity.nickname} acabaste de confirmar a participação.` : `${activity.nickname} atualizou a resposta.`}
 Pessoas representadas: ${summary.guests}
 Respostas: ${summary.responses}
 Disponibilidade por dia: ${JSON.stringify(summary.byDay)}
