@@ -118,6 +118,8 @@ const renderLinkState = async (state) => {
   elements.linkTarget.hidden = state.status !== 'none';
   elements.linkCreate.hidden = state.status !== 'none';
   if (state.status === 'none') {
+    elements.linkWhatsapp.hidden = true;
+    elements.linkWhatsapp.removeAttribute('href');
     elements.linkStatus.textContent = 'Podes ligar a tua resposta à de outro membro.';
     return;
   }
