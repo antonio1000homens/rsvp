@@ -524,14 +524,34 @@ export const createHandler = ({
       }));
       profiles = result.Items || [];
     }
-    const guests = profiles.filter(Boolean)
-      .filter(({ identityStatus }) => identityStatus !== 'to_add')
-      .map(({ guestId, nickname, identityStatus }) => ({
-        id: guestId,
-        nickname: nickname.replace(/ — Por confirmar$/, ''),
-        registrationRequired: identityStatus === 'unconfirmed' || nickname.endsWith(' — Por confirmar'),
-      }))
-      .sort((left, right) => left.nickname.localeCompare(right.nickname));
+    const visibleProfiles = profiles.filter((profile) => profile && profile.identityStatus !== 'to_add');
+    const profileById = new Map(visibleProfiles.map((profile) => [profile.guestId, profile]));
+    const guests = [];
+    const rendered = new Set();
+    for (const profile of visibleProfiles) {
+      if (rendered.has(profile.guestId)) continue;
+      const marker = await guestLink(profile.guestId);
+      const other = marker?.status === 'active'
+        ? (profileById.get(marker.otherGuestId) || await getGuest(marker.otherGuestId).catch(() => null))
+        : null;
+      if (other && !rendered.has(other.guestId)) {
+        const members = [profile, other].sort((left, right) => left.nickname.localeCompare(right.nickname)).map(({ guestId, nickname, identityStatus }) => ({
+          id: guestId,
+          nickname: nickname.replace(/ — Por confirmar$/, ''),
+          registrationRequired: identityStatus === 'unconfirmed' || nickname.endsWith(' — Por confirmar'),
+        }));
+        guests.push({ id: members[0].id, nickname: members.map((member) => member.nickname).join(' & '), linked: true, members });
+        rendered.add(profile.guestId); rendered.add(other.guestId);
+        continue;
+      }
+      rendered.add(profile.guestId);
+      guests.push({
+        id: profile.guestId,
+        nickname: profile.nickname.replace(/ — Por confirmar$/, ''),
+        registrationRequired: profile.identityStatus === 'unconfirmed' || profile.nickname.endsWith(' — Por confirmar'),
+      });
+    }
+    guests.sort((left, right) => left.nickname.localeCompare(right.nickname));
     return jsonResponse(200, { guests });
   };
 
@@ -542,6 +562,36 @@ export const createHandler = ({
       ConsistentRead: true,
     }));
     return result.Item || null;
+  };
+
+  const guestLink = async (guestId) => {
+    const result = await ddb.send(new GetCommand({ TableName: env.RSVP_TABLE, Key: { pk: `GUEST#${guestId}`, sk: 'LINK' }, ConsistentRead: true }));
+    return result.Item || null;
+  };
+
+  const linkRequest = async (linkId) => {
+    const result = await ddb.send(new GetCommand({ TableName: env.RSVP_TABLE, Key: { pk: `LINK#${linkId}`, sk: 'REQUEST' }, ConsistentRead: true }));
+    return result.Item || null;
+  };
+
+  const linkWhatsappUrl = async (request) => {
+    const appNumber = normalizeE164(await getWhatsappNumber());
+    const signedMessage = `LINK link=${request.linkId}&contact=${encodeURIComponent(request.targetNickname)}&nonce=${request.nonce}`;
+    const signature = createHmac('sha256', await getValidationSecret()).update(signedMessage, 'utf8').digest('base64url');
+    const whatsappUrl = new URL(`https://wa.me/${appNumber.slice(1)}`);
+    whatsappUrl.searchParams.set('text', `${signedMessage}&sig=${signature}`);
+    return whatsappUrl.toString();
+  };
+
+  const linkState = async (guestId) => {
+    const marker = await guestLink(guestId);
+    if (!marker) return { status: 'none' };
+    const request = await linkRequest(marker.linkId);
+    if (!request) return { status: 'none' };
+    const other = await getGuest(marker.otherGuestId).catch(() => null);
+    const state = { status: request.status, linkId: request.linkId, requesterId: request.requesterId, targetId: request.targetId, other: other ? { id: other.guestId, nickname: other.nickname.replace(/ — Por confirmar$/, '') } : null };
+    if (request.status === 'pending') state.whatsappUrl = await linkWhatsappUrl(request);
+    return state;
   };
 
   const eventSettings = async () => {
@@ -576,11 +626,73 @@ export const createHandler = ({
     const config = await rsvpConfig();
     const choices = responseChoices(parseJsonBody(event), config.days);
     validateRestaurantChoices(choices.restaurantChoices, config.restaurantChoices);
-    await ddb.send(new PutCommand({
-      TableName: env.RSVP_TABLE,
-      Item: { pk: `RSVP#${guest.guestId}`, sk: 'RESPONSE', entityType: 'rsvpResponse', guestId: guest.guestId, ...choices, updatedAt: now() },
-    }));
+    const marker = await guestLink(guest.guestId);
+    const items = [{ Put: { TableName: env.RSVP_TABLE, Item: { pk: `RSVP#${guest.guestId}`, sk: 'RESPONSE', entityType: 'rsvpResponse', guestId: guest.guestId, ...choices, updatedAt: now() } } }];
+    if (marker?.status === 'active') items.push({ Put: { TableName: env.RSVP_TABLE, Item: { pk: `RSVP#${marker.otherGuestId}`, sk: 'RESPONSE', entityType: 'rsvpResponse', guestId: marker.otherGuestId, ...choices, updatedAt: now() } } });
+    await ddb.send(items.length === 1 ? new PutCommand(items[0].Put) : new TransactWriteCommand({ TransactItems: items }));
     return jsonResponse(200, { saved: true, ...config, response: choices });
+  };
+
+  const linkCandidates = async (event) => {
+    const sessionGuest = await readSessionGuest(event);
+    if (!sessionGuest) throw new ApiError(401, 'authentication_required');
+    const result = await ddb.send(new ScanCommand({
+      TableName: env.RSVP_TABLE,
+      FilterExpression: 'sk = :profile AND entityType = :guest AND enabled = :enabled',
+      ExpressionAttributeValues: { ':profile': 'PROFILE', ':guest': 'guest', ':enabled': true },
+      ProjectionExpression: 'guestId, nickname, identityStatus',
+    }));
+    const candidates = (result.Items || [])
+      .filter((item) => item.guestId !== sessionGuest.guestId && item.identityStatus !== 'to_add')
+      .map((item) => ({ id: item.guestId, nickname: String(item.nickname || '').replace(/ — Por confirmar$/, '') }))
+      .sort((left, right) => left.nickname.localeCompare(right.nickname));
+    return jsonResponse(200, { candidates });
+  };
+
+  const createLink = async (event) => {
+    const requester = await readSessionGuest(event);
+    if (!requester) throw new ApiError(401, 'authentication_required');
+    const body = parseJsonBody(event);
+    const target = await getGuest(validGuestId(body.targetGuestId));
+    if (target.guestId === requester.guestId || target.identityStatus === 'to_add') throw new ApiError(400, 'invalid_link_target');
+    if (await guestLink(requester.guestId) || await guestLink(target.guestId)) throw new ApiError(409, 'member_already_linked');
+    const linkId = randomUUID();
+    const nonce = toBase64Url(randomBytes(32));
+    const response = await rsvpForGuest(requester.guestId);
+    const createdAt = now();
+    const request = { pk: `LINK#${linkId}`, sk: 'REQUEST', entityType: 'memberLink', linkId, requesterId: requester.guestId, targetId: target.guestId, requesterNickname: requester.nickname, targetNickname: target.nickname.replace(/ — Por confirmar$/, ''), nonce, status: 'pending', createdAt, ...(response ? { response: { ...response, pk: undefined, sk: undefined } } : {}) };
+    try {
+      await ddb.send(new TransactWriteCommand({ TransactItems: [
+        { Put: { TableName: env.RSVP_TABLE, Item: request, ConditionExpression: 'attribute_not_exists(pk)' } },
+        { Put: { TableName: env.RSVP_TABLE, Item: { pk: `GUEST#${requester.guestId}`, sk: 'LINK', entityType: 'memberLink', linkId, otherGuestId: target.guestId, status: 'pending' }, ConditionExpression: 'attribute_not_exists(pk)' } },
+        { Put: { TableName: env.RSVP_TABLE, Item: { pk: `GUEST#${target.guestId}`, sk: 'LINK', entityType: 'memberLink', linkId, otherGuestId: requester.guestId, status: 'pending' }, ConditionExpression: 'attribute_not_exists(pk)' } },
+      ] }));
+    } catch (error) {
+      if (conditionalFailure(error)) throw new ApiError(409, 'member_already_linked');
+      throw error;
+    }
+    return jsonResponse(200, { ...(await linkState(requester.guestId)) });
+  };
+
+  const removeLink = async (event) => {
+    const body = parseJsonBody(event);
+    const sessionGuest = await readSessionGuest(event);
+    let request;
+    if (sessionGuest && !body.linkId) {
+      const marker = await guestLink(sessionGuest.guestId);
+      request = marker ? await linkRequest(marker.linkId) : null;
+    } else {
+      await requireAdmin(event);
+      if (typeof body.linkId !== 'string' || !body.linkId) throw new ApiError(400, 'invalid_link');
+      request = await linkRequest(body.linkId);
+    }
+    if (!request || !['pending', 'active'].includes(request.status)) throw new ApiError(404, 'link_not_found');
+    await ddb.send(new TransactWriteCommand({ TransactItems: [
+      { Delete: { TableName: env.RSVP_TABLE, Key: { pk: `LINK#${request.linkId}`, sk: 'REQUEST' }, ConditionExpression: 'attribute_exists(pk)' } },
+      { Delete: { TableName: env.RSVP_TABLE, Key: { pk: `GUEST#${request.requesterId}`, sk: 'LINK' } } },
+      { Delete: { TableName: env.RSVP_TABLE, Key: { pk: `GUEST#${request.targetId}`, sk: 'LINK' } } },
+    ] }));
+    return jsonResponse(200, { status: 'none' });
   };
 
   const startWhatsappRsvp = async (event) => {
@@ -628,6 +740,14 @@ export const createHandler = ({
       ProjectionExpression: 'guestId, nickname',
     }));
     const nicknames = new Map((profilesResult.Items || []).map((profile) => [profile.guestId, String(profile.nickname || '').replace(/ — Por confirmar$/, '')]));
+    const responseLinks = new Map(await Promise.all(responses.map(async (response) => [response.guestId, await guestLink(response.guestId)])));
+    const displayNames = new Map(nicknames);
+    for (const response of responses) {
+      const marker = responseLinks.get(response.guestId);
+      if (marker?.status === 'active' && nicknames.has(marker.otherGuestId)) {
+        displayNames.set(response.guestId, [nicknames.get(response.guestId), nicknames.get(marker.otherGuestId)].sort().join(' & '));
+      }
+    }
     const byDay = Object.fromEntries(days.map((day) => [day, 0]));
     const byMeal = { lunch: 0, dinner: 0, drinks: 0 };
     const dayVoters = Object.fromEntries(days.map((day) => [day, []]));
@@ -638,9 +758,11 @@ export const createHandler = ({
     const restaurantVoters = Object.fromEntries(restaurantNames.map((restaurant) => [restaurant, []]));
     let guests = 0;
     for (const response of responses) {
-      guests += Number(response.guestCount || 0);
+      const marker = responseLinks.get(response.guestId);
+      if (marker?.status === 'active' && response.guestId > marker.otherGuestId) continue;
       const guestCount = Number(response.guestCount || 0);
-      const nickname = nicknames.get(response.guestId);
+      guests += guestCount;
+      const nickname = displayNames.get(response.guestId);
       for (const day of response.availableDays || []) if (day in byDay) {
         byDay[day] += guestCount;
         if (nickname && !dayVoters[day].some((voter) => voter.nickname === nickname)) dayVoters[day].push({ nickname, guestCount });
@@ -1008,6 +1130,14 @@ export const createHandler = ({
     }
     if (path === '/api/rsvp' && method === 'GET') return getRsvp(event);
     if (path === '/api/rsvp' && method === 'PUT') return saveRsvp(event);
+    if (path === '/api/link/candidates' && method === 'GET') return linkCandidates(event);
+    if (path === '/api/link' && method === 'GET') {
+      const sessionGuest = await readSessionGuest(event);
+      if (!sessionGuest) throw new ApiError(401, 'authentication_required');
+      return jsonResponse(200, await linkState(sessionGuest.guestId));
+    }
+    if (path === '/api/link' && method === 'POST') return createLink(event);
+    if (path === '/api/link' && method === 'DELETE') return removeLink(event);
     if (path === '/api/rsvp/whatsapp/start' && method === 'POST') return startWhatsappRsvp(event);
     if (path === '/api/admin/settings' && method === 'GET') return adminSettings(event);
     if (path === '/api/admin/settings' && method === 'PUT') return saveAdminSettings(event);
