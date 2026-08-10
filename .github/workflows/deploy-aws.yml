@@ -79,7 +79,7 @@ jobs:
       AWS_ROLE_TO_ASSUME: ${{ vars.AWS_ROLE_TO_ASSUME }}
       AWS_CLOUDFORMATION_ROLE_ARN: ${{ vars.AWS_CLOUDFORMATION_ROLE_ARN }}
       CODE_BUCKET: ${{ vars.CODE_BUCKET || 'aws2022-lambda-code' }}
-      BW_GEMINI: ${{ secrets.BW_GEMINI }}
+      SKIP_GEMINI_API_KEY_SYNC: '1'
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -94,12 +94,6 @@ jobs:
           role-to-assume: ${{ env.AWS_ROLE_TO_ASSUME }}
           role-session-name: github-actions-rsvp-deploy
           aws-region: ${{ env.AWS_REGION }}
-      - name: Read Gemini API key from Bitwarden Secrets Manager
-        uses: bitwarden/sm-action@f1de238fc00c738c56140796018be9084c2b5d21 # v2
-        with:
-          access_token: ${{ secrets.BWS_ACCESS_TOKEN }}
-          secrets: |
-            ${{ secrets.BW_GEMINI }} > GEMINI_API_KEY
       - name: Validate template with AWS
         run: aws cloudformation validate-template --template-body file://cloudformation/rsvp.yaml >/dev/null
       - name: Deploy application stack
