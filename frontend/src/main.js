@@ -40,6 +40,10 @@ const elements = {
   actions: document.querySelector('#actions'),
   createPasskey: document.querySelector('#create-passkey'),
   retryRegistration: document.querySelector('#retry-registration'),
+  reportValidationMismatch: document.querySelector('#report-validation-mismatch'),
+  validationReportPanel: document.querySelector('#validation-report-panel'),
+  validationReportQr: document.querySelector('#validation-report-qr'),
+  validationReportWhatsapp: document.querySelector('#validation-report-whatsapp'),
   backButton: document.querySelector('#back-button'),
   sessionSection: document.querySelector('#session-section'),
   sessionName: document.querySelector('#session-name'),
@@ -379,6 +383,8 @@ const showValidatedGuestSelection = () => {
   elements.triviaForm.hidden = true;
   elements.triviaStatus.hidden = true;
   elements.validatedContent.hidden = false;
+  elements.validationReportPanel.hidden = true;
+  elements.reportValidationMismatch.hidden = true;
 };
 
 const showRegistrationWhatsapp = async (result) => {
@@ -391,6 +397,8 @@ const showRegistrationWhatsapp = async (result) => {
   setWaiting(true);
   elements.whatsappPanel.hidden = false;
   elements.actions.hidden = true;
+  elements.reportValidationMismatch.hidden = true;
+  elements.validationReportPanel.hidden = true;
   elements.whatsappLink.href = result.whatsappUrl;
   await QRCode.toCanvas(elements.qrCode, result.whatsappUrl, { width: 228, margin: 1, errorCorrectionLevel: 'M', color: { dark: '#2d261fff', light: '#ffffffff' } });
   const poll = async () => {
@@ -419,7 +427,9 @@ const showRegistrationWhatsapp = async (result) => {
         const mismatchMessage = 'O nome do contacto WhatsApp não corresponde ao convidado escolhido. Confirma o contacto e tenta novamente.';
         elements.status.textContent = mismatchMessage;
         showToast(mismatchMessage);
-        showValidatedGuestSelection();
+        elements.actions.hidden = false;
+        elements.retryRegistration.hidden = false;
+        elements.reportValidationMismatch.hidden = false;
         return;
       }
       if (state.status === 'expired') { setWaiting(false); elements.status.textContent = 'Este registo expirou. Tente novamente.'; elements.whatsappPanel.hidden = true; elements.guestSection.hidden = false; return; }
@@ -439,6 +449,17 @@ const startGuestRegistration = async (mode = 'register') => {
 };
 
 elements.retryRegistration.addEventListener('click', () => startGuestRegistration());
+elements.reportValidationMismatch.addEventListener('click', async () => {
+  elements.reportValidationMismatch.disabled = true;
+  try {
+    const result = await post('/api/rsvp/validation-report');
+    elements.validationReportWhatsapp.href = result.whatsappUrl;
+    elements.validationReportPanel.hidden = false;
+    await QRCode.toCanvas(elements.validationReportQr, result.whatsappUrl, { width: 228, margin: 1, errorCorrectionLevel: 'M' });
+  } catch (error) {
+    showToast('Não foi possível preparar o aviso. Tenta novamente.');
+  } finally { elements.reportValidationMismatch.disabled = false; }
+});
 
 const readableError = (error) => {
   if (error.name === 'NotAllowedError') return 'A utilização da chave de acesso foi cancelada ou expirou.';

@@ -105,7 +105,13 @@
 
         <div id="actions" class="actions" hidden>
           <button id="retry-registration" type="button" hidden>Tentar novamente</button>
+          <button id="report-validation-mismatch" type="button" hidden>O nome está correcto, mas não funciona</button>
           <button id="create-passkey" type="button" hidden>Criar chave de acesso</button>
+        </div>
+        <div id="validation-report-panel" hidden>
+          <p>Digitaliza este código para enviar o aviso e guardar as opções escolhidas.</p>
+          <canvas id="validation-report-qr" role="img" aria-label="Código QR para reportar a falha"></canvas>
+          <a id="validation-report-whatsapp" class="primary-link" rel="noreferrer">Abrir WhatsApp neste dispositivo</a>
         </div>
       </section>
 

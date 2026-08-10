@@ -995,6 +995,30 @@ export const createHandler = ({
     return jsonResponse(200, { status: 'to_add', whatsappUrl: whatsappUrl.toString() });
   };
 
+  const validationMismatchReport = async (event) => {
+    await requireTriviaGate(event);
+    const token = await readSignedCookie(event, 'rsvp_registration');
+    if (token?.type !== 'registration') throw new ApiError(409, 'validation_report_unavailable');
+    const challenge = await getRegistrationChallenge(token.nonce);
+    if (!challenge || challenge.status !== 'pending' || challenge.expiresAt < now()) throw new ApiError(410, 'validation_report_expired');
+    const guest = await getGuest(challenge.guestId);
+    const response = challenge.response || {};
+    const lines = [
+      'RSVP-IMPORT',
+      `Dias: ${Array.isArray(response.availableDays) ? response.availableDays.join(', ') : ''}`,
+      `Pessoas: ${response.guestCount || ''}`,
+      `Preferência: ${response.preferenceType || ''}`,
+      `Refeições: ${Array.isArray(response.mealTypes) ? response.mealTypes.join(', ') : ''}`,
+      `Restaurantes: ${Array.isArray(response.restaurantChoices) ? response.restaurantChoices.join(', ') : ''}`,
+      `Outros restaurantes: ${Array.isArray(response.proposedRestaurantChoices) ? response.proposedRestaurantChoices.join(' | ') : ''}`,
+      `Restrições alimentares: ${response.dietaryRestrictions || ''}`,
+    ];
+    const message = `Ola Antonio, eu sou ${String(guest.nickname || '').replace(/ — Por confirmar$/, '')} e o contacto esta configurado como ${challenge.sender || ''}. O sistema nao reconhece.\n\n${lines.join('\n')}`;
+    const whatsappUrl = new URL(`https://wa.me/${CONTACT_REQUEST_NUMBER.slice(1)}`);
+    whatsappUrl.searchParams.set('text', message);
+    return jsonResponse(200, { whatsappUrl: whatsappUrl.toString() });
+  };
+
   const passwordSet = async (event) => {
     const guest = await authorizedRegistrationGuest(event);
     const body = parseJsonBody(event);
@@ -1345,6 +1369,7 @@ export const createHandler = ({
     if (path === '/api/link' && method === 'POST') return createLink(event);
     if (path === '/api/link' && method === 'DELETE') return removeLink(event);
     if (path === '/api/rsvp/whatsapp/start' && method === 'POST') return startWhatsappRsvp(event);
+    if (path === '/api/rsvp/validation-report' && method === 'POST') return validationMismatchReport(event);
     if (path === '/api/admin/settings' && method === 'GET') return adminSettings(event);
     if (path === '/api/admin/settings' && method === 'PUT') return saveAdminSettings(event);
     if (path === '/api/admin/summary' && method === 'GET') return adminSummary(event);
