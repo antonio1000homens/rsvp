@@ -50,6 +50,9 @@ const elements = {
   adminRestaurants: document.querySelector('#admin-restaurants'),
   adminTrivia: document.querySelector('#admin-trivia'),
   adminUseTrivia: document.querySelector('#admin-use-trivia'),
+  adminSummaryForm: document.querySelector('#admin-summary-form'),
+  adminSummary: document.querySelector('#admin-summary'),
+  adminSummaryStatus: document.querySelector('#admin-summary-status'),
   adminGroups: document.querySelector('#admin-groups'),
   rsvpForm: document.querySelector('#rsvp-form'),
   whatsappRsvpForm: document.querySelector('#whatsapp-rsvp-form'),
@@ -264,6 +267,8 @@ const loadAdmin = async () => {
     elements.adminUseTrivia.checked = settings.useTrivia;
     const { groups } = await api('/api/admin/groups');
     elements.adminGroups.textContent = groups.length ? groups.map((group) => `${group.name}: ${group.members} membro(s)`).join(' · ') : 'Ainda não existem grupos.';
+    const summary = await api('/api/admin/summary');
+    elements.adminSummary.value = summary.narrative || '';
   } catch (error) {
     if (error.status !== 403) elements.adminSection.hidden = true;
   }
@@ -758,6 +763,16 @@ elements.adminSettingsForm.addEventListener('submit', async (event) => {
     elements.sessionStatus.textContent = 'Opções do evento guardadas.';
     await loadRsvpForm();
   } catch { elements.sessionStatus.textContent = 'Não foi possível guardar as opções do evento. Confirma o formato das perguntas.'; }
+});
+elements.adminSummaryForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  elements.adminSummaryStatus.textContent = 'A guardar…';
+  try {
+    await put('/api/admin/summary', { narrative: elements.adminSummary.value });
+    elements.adminSummaryStatus.textContent = 'Comentário guardado.';
+  } catch (error) {
+    elements.adminSummaryStatus.textContent = readableError(error);
+  }
 });
 elements.linkCreate.addEventListener('click', async () => {
   if (!elements.linkTarget.value) { elements.linkStatus.textContent = 'Escolhe primeiro o membro a ligar.'; return; }

@@ -174,6 +174,13 @@
             <label><input id="admin-use-trivia" name="useTrivia" type="checkbox"> Usar perguntas de validação</label>
             <button type="submit">Guardar definições do evento</button>
           </form>
+          <form id="admin-summary-form" class="rsvp-form">
+            <label for="admin-summary">Comentário apresentado pelo Gemini</label>
+            <textarea id="admin-summary" name="summary" maxlength="600" placeholder="Ainda não existe um comentário do Gemini."></textarea>
+            <p class="fine-print">Podes corrigir o último comentário apresentado. Uma nova atualização do evento pode substituí-lo.</p>
+            <button type="submit">Guardar comentário</button>
+            <p id="admin-summary-status" class="status" role="status" aria-live="polite"></p>
+          </form>
           <p id="admin-groups" class="status"></p>
         </details>
         <div class="actions">

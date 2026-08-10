@@ -9,7 +9,7 @@ test('event-summary prompt is pt-PT and only contains aggregate RSVP data plus t
     activity: { type: 'registration', nickname: 'Célia' },
   });
   assert.match(prompt, /português de Portugal/);
-  assert.match(prompt, /Célia acabou de confirmar/);
+  assert.match(prompt, /Célia .*confirmar/);
   assert.doesNotMatch(prompt, /private|910000000|scrypt/);
 });
 

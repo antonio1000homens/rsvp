@@ -848,6 +848,27 @@ export const createHandler = ({
     return jsonResponse(200, { ...(await rsvpConfig()), triviaQuestions: settings.triviaQuestions || [], useTrivia: Boolean(settings.useTrivia) });
   };
 
+  const adminSummary = async (event) => {
+    await requireAdmin(event);
+    const summary = (await ddb.send(new GetCommand({ TableName: env.RSVP_TABLE, Key: { pk: 'EVENT#DEFAULT', sk: 'AI_SUMMARY' }, ConsistentRead: true }))).Item;
+    return jsonResponse(200, { narrative: summary?.narrative || '', generatedAt: summary?.generatedAt || null, lastActivity: summary?.lastActivity || null });
+  };
+
+  const saveAdminSummary = async (event) => {
+    await requireAdmin(event);
+    const body = parseJsonBody(event);
+    if (typeof body.narrative !== 'string' || body.narrative.length > 600 || /<[^>]+>/.test(body.narrative)) throw new ApiError(400, 'invalid_summary_narrative');
+    const narrative = body.narrative.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+    const key = { pk: 'EVENT#DEFAULT', sk: 'AI_SUMMARY' };
+    if (!narrative) {
+      await ddb.send(new DeleteCommand({ TableName: env.RSVP_TABLE, Key: key }));
+      return jsonResponse(200, { saved: true, narrative: '' });
+    }
+    const existing = (await ddb.send(new GetCommand({ TableName: env.RSVP_TABLE, Key: key, ConsistentRead: true }))).Item || {};
+    await ddb.send(new PutCommand({ TableName: env.RSVP_TABLE, Item: { ...existing, ...key, entityType: 'aiSummary', narrative, editedAt: now() } }));
+    return jsonResponse(200, { saved: true, narrative });
+  };
+
   const saveAdminSettings = async (event) => {
     await requireAdmin(event);
     const body = parseJsonBody(event);
@@ -1251,6 +1272,8 @@ export const createHandler = ({
     if (path === '/api/rsvp/whatsapp/start' && method === 'POST') return startWhatsappRsvp(event);
     if (path === '/api/admin/settings' && method === 'GET') return adminSettings(event);
     if (path === '/api/admin/settings' && method === 'PUT') return saveAdminSettings(event);
+    if (path === '/api/admin/summary' && method === 'GET') return adminSummary(event);
+    if (path === '/api/admin/summary' && method === 'PUT') return saveAdminSummary(event);
     if (path === '/api/admin/groups' && method === 'GET') return adminGroups(event);
     if (path === '/api/auth/start' && method === 'POST') return authStart(event);
     if (path === '/api/auth/password/login' && method === 'POST') return passwordLogin(event);
