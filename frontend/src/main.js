@@ -98,7 +98,7 @@ const showToast = (message) => {
   toastTimer = window.setTimeout(() => {
     elements.toast.hidden = true;
     toastTimer = null;
-  }, 3500);
+  }, 2000);
 };
 
 const setWaiting = (waiting) => {
@@ -760,7 +760,8 @@ elements.adminSettingsForm.addEventListener('submit', async (event) => {
       return { question: line.slice(0, separator).trim(), answers: line.slice(separator + 1).split(',').map((answer) => answer.trim()).filter(Boolean) };
     });
     await put('/api/admin/settings', { restaurantChoices, triviaQuestions, useTrivia: elements.adminUseTrivia.checked });
-    elements.sessionStatus.textContent = 'Opções do evento guardadas.';
+    elements.sessionStatus.textContent = '';
+    showToast('Opções do evento guardadas.');
     await loadRsvpForm();
   } catch { elements.sessionStatus.textContent = 'Não foi possível guardar as opções do evento. Confirma o formato das perguntas.'; }
 });
@@ -769,7 +770,8 @@ elements.adminSummaryForm.addEventListener('submit', async (event) => {
   elements.adminSummaryStatus.textContent = 'A guardar…';
   try {
     await put('/api/admin/summary', { narrative: elements.adminSummary.value });
-    elements.adminSummaryStatus.textContent = 'Comentário guardado.';
+    elements.adminSummaryStatus.textContent = '';
+    showToast('Comentário guardado.');
   } catch (error) {
     elements.adminSummaryStatus.textContent = readableError(error);
   }
@@ -807,14 +809,16 @@ elements.passwordForm.addEventListener('submit', async (event) => {
   try {
     await post('/api/auth/password', { password: elements.passwordNew.value, confirmPassword: elements.passwordConfirm.value });
     elements.passwordForm.reset();
-    elements.passwordStatus.textContent = 'Palavra-passe guardada.';
+    elements.passwordStatus.textContent = '';
+    showToast('Palavra-passe guardada.');
   } catch (error) { elements.passwordStatus.textContent = readableError(error); }
 });
 elements.passwordRemove.addEventListener('click', async () => {
   elements.passwordStatus.textContent = 'A remover…';
   try {
     await del('/api/auth/password');
-    elements.passwordStatus.textContent = 'Palavra-passe removida.';
+    elements.passwordStatus.textContent = '';
+    showToast('Palavra-passe removida.');
   } catch (error) { elements.passwordStatus.textContent = readableError(error); }
 });
 
