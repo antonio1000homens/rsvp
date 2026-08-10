@@ -893,6 +893,44 @@ export const createHandler = ({
     return jsonResponse(200, { groups: withCounts });
   };
 
+  const adminGuests = async (event) => {
+    await requireAdmin(event);
+    const result = await ddb.send(new ScanCommand({
+      TableName: env.RSVP_TABLE,
+      FilterExpression: 'sk = :profile AND entityType = :guest AND enabled = :enabled',
+      ExpressionAttributeValues: { ':profile': 'PROFILE', ':guest': 'guest', ':enabled': true },
+      ProjectionExpression: 'guestId, nickname, sender, identityStatus',
+    }));
+    const guests = (result.Items || []).map((guest) => ({
+      id: guest.guestId,
+      nickname: String(guest.nickname || '').replace(/ — Por confirmar$/, ''),
+      sender: String(guest.sender || ''),
+      identityStatus: guest.identityStatus || 'unconfirmed',
+    })).sort((left, right) => left.nickname.localeCompare(right.nickname));
+    return jsonResponse(200, { guests });
+  };
+
+  const saveAdminGuest = async (event) => {
+    await requireAdmin(event);
+    const body = parseJsonBody(event);
+    const guest = await getGuest(validGuestId(body.guestId));
+    let nickname;
+    let sender;
+    try {
+      nickname = normalizeNickname(body.nickname);
+      sender = normalizeContactName(body.sender);
+    } catch { throw new ApiError(400, 'invalid_guest_names'); }
+    const duplicate = (await ddb.send(new ScanCommand({
+      TableName: env.RSVP_TABLE,
+      FilterExpression: 'sk = :profile AND entityType = :guest AND enabled = :enabled AND nicknameLookup = :lookup',
+      ExpressionAttributeValues: { ':profile': 'PROFILE', ':guest': 'guest', ':enabled': true, ':lookup': nickname.lookup },
+      ProjectionExpression: 'guestId',
+    }))).Items?.find((item) => item.guestId !== guest.guestId);
+    if (duplicate) throw new ApiError(409, 'duplicate_guest_nickname');
+    await ddb.send(new PutCommand({ TableName: env.RSVP_TABLE, Item: { ...guest, nickname: nickname.display, nicknameLookup: nickname.lookup, sender: sender.display, senderLookup: sender.lookup, updatedAt: now() } }));
+    return jsonResponse(200, { saved: true, guest: { id: guest.guestId, nickname: nickname.display, sender: sender.display, identityStatus: guest.identityStatus || 'unconfirmed' } });
+  };
+
   const requestNewContact = async (event) => {
     await requireTriviaGate(event);
     const body = parseJsonBody(event);
@@ -1275,6 +1313,8 @@ export const createHandler = ({
     if (path === '/api/admin/summary' && method === 'GET') return adminSummary(event);
     if (path === '/api/admin/summary' && method === 'PUT') return saveAdminSummary(event);
     if (path === '/api/admin/groups' && method === 'GET') return adminGroups(event);
+    if (path === '/api/admin/guests' && method === 'GET') return adminGuests(event);
+    if (path === '/api/admin/guests' && method === 'PUT') return saveAdminGuest(event);
     if (path === '/api/auth/start' && method === 'POST') return authStart(event);
     if (path === '/api/auth/password/login' && method === 'POST') return passwordLogin(event);
     if (path === '/api/auth/password' && method === 'POST') return passwordSet(event);

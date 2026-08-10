@@ -55,6 +55,11 @@ const elements = {
   adminSummaryForm: document.querySelector('#admin-summary-form'),
   adminSummary: document.querySelector('#admin-summary'),
   adminSummaryStatus: document.querySelector('#admin-summary-status'),
+  adminGuestForm: document.querySelector('#admin-guest-form'),
+  adminGuestSelect: document.querySelector('#admin-guest-select'),
+  adminGuestNickname: document.querySelector('#admin-guest-nickname'),
+  adminGuestSender: document.querySelector('#admin-guest-sender'),
+  adminGuestStatus: document.querySelector('#admin-guest-status'),
   adminGroups: document.querySelector('#admin-groups'),
   rsvpForm: document.querySelector('#rsvp-form'),
   whatsappRsvpForm: document.querySelector('#whatsapp-rsvp-form'),
@@ -271,6 +276,14 @@ const loadAdmin = async () => {
     elements.adminGroups.textContent = groups.length ? groups.map((group) => `${group.name}: ${group.members} membro(s)`).join(' · ') : 'Ainda não existem grupos.';
     const summary = await api('/api/admin/summary');
     elements.adminSummary.value = summary.narrative || '';
+    const { guests } = await api('/api/admin/guests');
+    elements.adminGuestSelect.replaceChildren(...guests.map((guest) => new Option(`${guest.nickname} (${guest.sender || 'sem remetente'})`, guest.id)));
+    const selected = guests[0];
+    if (selected) {
+      elements.adminGuestNickname.value = selected.nickname;
+      elements.adminGuestSender.value = selected.sender;
+    }
+    elements.adminGuestSelect._guests = guests;
   } catch (error) {
     if (error.status !== 403) elements.adminSection.hidden = true;
   }
@@ -440,6 +453,8 @@ const readableError = (error) => {
   if (error.code === 'invalid_preference_type') return 'Seleciona uma preferência válida: 18+, +1s ou Famílias.';
   if (error.code === 'invalid_preferences' || error.code === 'invalid_restaurant_choice') return 'Seleciona uma escolha de restaurante válida.';
   if (error.code === 'contact_already_requested') return 'Este nome já tem um pedido pendente.';
+  if (error.code === 'invalid_guest_names') return 'Indica um nome público e um nome de remetente válidos.';
+  if (error.code === 'duplicate_guest_nickname') return 'Esse nome público já está atribuído a outro convidado.';
   return 'Não foi possível concluir a autenticação. Tente novamente.';
 };
 
@@ -780,6 +795,26 @@ elements.adminSummaryForm.addEventListener('submit', async (event) => {
   } catch (error) {
     elements.adminSummaryStatus.textContent = readableError(error);
   }
+});
+elements.adminGuestSelect.addEventListener('change', () => {
+  const guest = elements.adminGuestSelect._guests?.find((item) => item.id === elements.adminGuestSelect.value);
+  if (!guest) return;
+  elements.adminGuestNickname.value = guest.nickname;
+  elements.adminGuestSender.value = guest.sender;
+});
+elements.adminGuestForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  elements.adminGuestStatus.textContent = 'A guardar…';
+  try {
+    const result = await put('/api/admin/guests', { guestId: elements.adminGuestSelect.value, nickname: elements.adminGuestNickname.value, sender: elements.adminGuestSender.value });
+    const guests = elements.adminGuestSelect._guests || [];
+    const guest = guests.find((item) => item.id === result.guest.id);
+    if (guest) { guest.nickname = result.guest.nickname; guest.sender = result.guest.sender; }
+    const option = [...elements.adminGuestSelect.options].find((item) => item.value === result.guest.id);
+    if (option) option.textContent = `${result.guest.nickname} (${result.guest.sender})`;
+    elements.adminGuestStatus.textContent = '';
+    showToast('Nomes guardados.');
+  } catch (error) { elements.adminGuestStatus.textContent = readableError(error); }
 });
 elements.linkCreate.addEventListener('click', async () => {
   if (!elements.linkTarget.value) { elements.linkStatus.textContent = 'Escolhe primeiro o membro a ligar.'; return; }

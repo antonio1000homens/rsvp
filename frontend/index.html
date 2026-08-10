@@ -182,6 +182,17 @@
             <button type="submit">Guardar comentário</button>
             <p id="admin-summary-status" class="status" role="status" aria-live="polite"></p>
           </form>
+          <form id="admin-guest-form" class="rsvp-form">
+            <label for="admin-guest-select">Convidado</label>
+            <select id="admin-guest-select" required></select>
+            <label for="admin-guest-nickname">Nome público</label>
+            <input id="admin-guest-nickname" type="text" maxlength="120" required>
+            <label for="admin-guest-sender">Nome do remetente WhatsApp</label>
+            <input id="admin-guest-sender" type="text" maxlength="240" required>
+            <p class="fine-print">O nome público aparece na página. O nome do remetente tem de corresponder ao nome guardado nos contactos WhatsApp do Tasker.</p>
+            <button type="submit">Guardar nomes</button>
+            <p id="admin-guest-status" class="status" role="status" aria-live="polite"></p>
+          </form>
           <p id="admin-groups" class="status"></p>
         </details>
         <div class="actions">
