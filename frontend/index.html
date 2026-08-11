@@ -189,6 +189,15 @@
             <button type="submit">Guardar comentário</button>
             <p id="admin-summary-status" class="status" role="status" aria-live="polite"></p>
           </form>
+          <form id="admin-add-guest-form" class="rsvp-form admin-add-guest">
+            <h3>Adicionar convidado</h3>
+            <label for="admin-new-guest-nickname">Nome público</label>
+            <input id="admin-new-guest-nickname" type="text" maxlength="120" required>
+            <label for="admin-new-guest-sender">Nome do remetente WhatsApp</label>
+            <input id="admin-new-guest-sender" type="text" maxlength="240" required>
+            <button type="submit">Adicionar convidado</button>
+            <p id="admin-add-guest-status" class="status" role="status" aria-live="polite"></p>
+          </form>
           <form id="admin-guest-form" class="rsvp-form">
             <label for="admin-guest-select">Convidado</label>
             <select id="admin-guest-select" required></select>
@@ -202,7 +211,11 @@
             <p id="admin-registration-status" class="status" role="status" aria-live="polite"></p>
             <button id="admin-refresh-guest-status" type="button" class="secondary">Atualizar estado de validação</button>
           </form>
-          <div class="rsvp-form">
+          <button id="admin-remove-guest" type="button" class="secondary admin-remove-guest">Remover convidado seleccionado</button>
+          <details class="admin-links">
+            <summary>Links</summary>
+            <div class="admin-links-content">
+          <div class="rsvp-form admin-link-card">
             <h3>Link para repetir a votação</h3>
             <p class="fine-print">Gera um novo link individual para o convidado selecionado. O link anterior deixa de funcionar e este expira em 30 dias.</p>
             <button id="admin-guest-access-link" type="button">Gerar link seguro</button>
@@ -212,7 +225,7 @@
             <a id="admin-share-guest-access-link" class="button secondary" target="_blank" rel="noopener" hidden>Enviar pelo WhatsApp</a>
             <canvas id="admin-guest-access-link-qr" hidden></canvas>
           </div>
-          <div class="rsvp-form">
+          <div class="rsvp-form admin-link-card">
             <h3>Recuperar validação WhatsApp pendente</h3>
             <p class="fine-print">Gera uma nova mensagem de validação para a submissão pendente, sem pedir ao convidado para preencher novamente as escolhas. A mensagem anterior deixa de funcionar.</p>
             <button id="admin-reissue-registration" type="button">Gerar nova validação WhatsApp</button>
@@ -222,16 +235,8 @@
             <a id="admin-share-reissue-registration" class="button secondary" target="_blank" rel="noopener" hidden>Enviar pelo WhatsApp</a>
             <canvas id="admin-reissue-registration-qr" hidden></canvas>
           </div>
-          <form id="admin-add-guest-form" class="rsvp-form">
-            <h3>Adicionar convidado</h3>
-            <label for="admin-new-guest-nickname">Nome público</label>
-            <input id="admin-new-guest-nickname" type="text" maxlength="120" required>
-            <label for="admin-new-guest-sender">Nome do remetente WhatsApp</label>
-            <input id="admin-new-guest-sender" type="text" maxlength="240" required>
-            <button type="submit">Adicionar convidado</button>
-            <p id="admin-add-guest-status" class="status" role="status" aria-live="polite"></p>
-          </form>
-          <button id="admin-remove-guest" type="button" class="secondary">Remover convidado seleccionado</button>
+            </div>
+          </details>
           <p id="admin-groups" class="status"></p>
         </details>
         <div class="actions">
