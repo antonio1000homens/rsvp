@@ -57,6 +57,7 @@ const elements = {
   adminRestaurants: document.querySelector('#admin-restaurants'),
   adminTrivia: document.querySelector('#admin-trivia'),
   adminUseTrivia: document.querySelector('#admin-use-trivia'),
+  adminUseWhatsappVerification: document.querySelector('#admin-use-whatsapp-verification'),
   adminSummaryForm: document.querySelector('#admin-summary-form'),
   adminSummary: document.querySelector('#admin-summary'),
   adminSummaryStatus: document.querySelector('#admin-summary-status'),
@@ -73,6 +74,7 @@ const elements = {
   adminShareGuestAccessLink: document.querySelector('#admin-share-guest-access-link'),
   adminGuestAccessLinkQr: document.querySelector('#admin-guest-access-link-qr'),
   adminReissueRegistration: document.querySelector('#admin-reissue-registration'),
+  adminRecoverRegistration: document.querySelector('#admin-recover-registration'),
   adminReissueRegistrationValue: document.querySelector('#admin-reissue-registration-value'),
   adminCopyReissueRegistration: document.querySelector('#admin-copy-reissue-registration'),
   adminShareReissueRegistration: document.querySelector('#admin-share-reissue-registration'),
@@ -304,6 +306,7 @@ const loadAdmin = async () => {
     elements.adminRestaurants.value = settings.restaurantChoices.join('\n');
     elements.adminTrivia.value = settings.triviaQuestions.map((item) => `${item.question} | ${item.answers.join(', ')}`).join('\n');
     elements.adminUseTrivia.checked = settings.useTrivia;
+    elements.adminUseWhatsappVerification.checked = settings.useWhatsappVerification !== false;
     const { groups } = await api('/api/admin/groups');
     elements.adminGroups.textContent = groups.length ? groups.map((group) => `${group.name}: ${group.members} membro(s)`).join(' · ') : 'Ainda não existem grupos.';
     const summary = await api('/api/admin/summary');
@@ -922,7 +925,7 @@ elements.adminSettingsForm.addEventListener('submit', async (event) => {
       if (separator < 1) throw new Error('invalid_trivia_questions');
       return { question: line.slice(0, separator).trim(), answers: line.slice(separator + 1).split(',').map((answer) => answer.trim()).filter(Boolean) };
     });
-    await put('/api/admin/settings', { restaurantChoices, triviaQuestions, useTrivia: elements.adminUseTrivia.checked });
+    await put('/api/admin/settings', { restaurantChoices, triviaQuestions, useTrivia: elements.adminUseTrivia.checked, useWhatsappVerification: elements.adminUseWhatsappVerification.checked });
     elements.sessionStatus.textContent = '';
     showToast('Opções do evento guardadas.');
     await loadRsvpForm();
@@ -990,6 +993,24 @@ elements.adminReissueRegistration.addEventListener('click', async () => {
     showToast('Nova validação WhatsApp criada. A mensagem anterior foi revogada.');
   } catch (error) { elements.adminGuestStatus.textContent = readableError(error); }
   finally { elements.adminReissueRegistration.disabled = false; }
+});
+elements.adminRecoverRegistration.addEventListener('click', async () => {
+  const guestId = elements.adminGuestSelect.value;
+  if (!guestId) return;
+  elements.adminRecoverRegistration.disabled = true;
+  try {
+    const result = await post('/api/admin/guests/recover-registration', { guestId });
+    elements.adminReissueRegistrationValue.value = result.link;
+    elements.adminReissueRegistrationValue.hidden = false;
+    elements.adminCopyReissueRegistration.hidden = false;
+    elements.adminShareReissueRegistration.href = adminShareUrl(result.link);
+    elements.adminShareReissueRegistration.hidden = false;
+    await QRCode.toCanvas(elements.adminReissueRegistrationQr, result.link, { width: 228, margin: 1, errorCorrectionLevel: 'M' });
+    elements.adminReissueRegistrationQr.hidden = false;
+    showToast('Votação recuperada. Link seguro gerado.');
+    await loadAdminGuests();
+  } catch (error) { elements.adminGuestStatus.textContent = readableError(error); }
+  finally { elements.adminRecoverRegistration.disabled = false; }
 });
 elements.adminCopyReissueRegistration.addEventListener('click', async () => {
   try { await navigator.clipboard.writeText(elements.adminReissueRegistrationValue.value); showToast('Link de validação copiado.'); }
