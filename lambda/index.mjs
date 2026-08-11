@@ -1519,10 +1519,9 @@ export const createHandler = ({
 
   const sessionStatus = async (event) => {
     const guest = await readSessionGuest(event);
-    return jsonResponse(200, guest
-      ? { authenticated: true, nickname: guest.nickname }
-      : { authenticated: false },
-    );
+    if (!guest) return jsonResponse(200, { authenticated: false });
+    const [credentials, passwordCredential] = await Promise.all([getCredentials(guest.guestId), getPasswordCredential(guest.guestId)]);
+    return jsonResponse(200, { authenticated: true, nickname: guest.nickname, methods: { passkey: credentials.length > 0, password: Boolean(passwordCredential) } });
   };
 
   const api = async (event, path, method) => {

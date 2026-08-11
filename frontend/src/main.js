@@ -201,6 +201,17 @@ const showAuthenticated = (nickname, message = '', passkeyLabel = 'Adicionar out
   elements.sessionStatus.textContent = message;
   elements.passwordForm.reset();
   elements.addPasskey.textContent = passkeyLabel;
+  elements.credentialActions.hidden = true;
+  elements.addPasskey.hidden = true;
+  elements.openPassword.hidden = true;
+  void api('/api/session').then((session) => {
+    if (!session.authenticated) return;
+    elements.addPasskey.hidden = Boolean(session.methods?.passkey);
+    elements.openPassword.hidden = Boolean(session.methods?.password);
+  }).catch(() => {
+    elements.addPasskey.hidden = false;
+    elements.openPassword.hidden = false;
+  });
   loadRsvpForm();
   loadAdmin();
   loadRsvpSummary();
@@ -535,9 +546,7 @@ const showRegistrationWhatsapp = async (result) => {
           showAuthenticated(selectedGuest?.nickname || 'Registo', 'WhatsApp confirmado. Podes agora criar uma palavra-passe ou adicionar uma chave de acesso.');
           return;
         }
-        elements.status.textContent = 'Disponibilidade recebida. Quer criar uma chave de acesso para editar a resposta?';
-        elements.actions.hidden = false;
-        elements.createPasskey.hidden = false;
+        showAuthenticated(selectedGuest?.nickname || 'Registo', 'Disponibilidade guardada. Podes criar uma chave de acesso e/ou uma palavra-passe para voltar a entrar.');
         return;
       }
       if (state.status === 'sender_mismatch') {
