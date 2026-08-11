@@ -63,9 +63,10 @@ fi
 cp "${ROOT_DIR}/dist/lambda/index.mjs" "${TEMP_DIR}/index.mjs"
 cp "${ROOT_DIR}/dist/lambda/phone-worker.mjs" "${TEMP_DIR}/phone-worker.mjs"
 cp "${ROOT_DIR}/dist/lambda/summary-worker.mjs" "${TEMP_DIR}/summary-worker.mjs"
+cp "${ROOT_DIR}/dist/lambda/slack-alarm-worker.mjs" "${TEMP_DIR}/slack-alarm-worker.mjs"
 (
   cd "${TEMP_DIR}"
-  zip -q lambda.zip index.mjs phone-worker.mjs summary-worker.mjs
+  zip -q lambda.zip index.mjs phone-worker.mjs summary-worker.mjs slack-alarm-worker.mjs
 )
 
 if [ -n "${GITHUB_SHA:-}" ]; then

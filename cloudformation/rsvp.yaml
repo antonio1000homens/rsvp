@@ -47,6 +47,9 @@ Parameters:
   GeminiApiKeyParameter:
     Type: String
     Default: /rsvp/gemini-api-key
+  SlackWebhookParameter:
+    Type: String
+    Default: /rsvp/slack-webhook-url
   WhatsappVerificationRequired:
     Type: String
     Default: 'true'
@@ -167,6 +170,7 @@ Resources:
       Threshold: 1
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
 
   SummaryDlq:
     Type: AWS::SQS::Queue
@@ -186,6 +190,23 @@ Resources:
         deadLetterTargetArn: !GetAtt SummaryDlq.Arn
         maxReceiveCount: 5
 
+  AlarmTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: rsvp-cloudwatch-alarms
+
+  AlarmTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics: [!Ref AlarmTopic]
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: cloudwatch.amazonaws.com }
+            Action: sns:Publish
+            Resource: !Ref AlarmTopic
+
   SummaryDlqAlarm:
     Type: AWS::CloudWatch::Alarm
     Properties:
@@ -201,6 +222,112 @@ Resources:
       Threshold: 1
       ComparisonOperator: GreaterThanOrEqualToThreshold
       TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+
+  RsvpLambdaErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: rsvp-app-errors
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions: [{ Name: FunctionName, Value: !Ref FunctionName }]
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+
+  PhoneLambdaErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: rsvp-phone-processor-errors
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions: [{ Name: FunctionName, Value: !Ref PhoneProcessorFunctionName }]
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+
+  SummaryLambdaErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: rsvp-summary-processor-errors
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions: [{ Name: FunctionName, Value: !Ref SummaryProcessorFunctionName }]
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+
+  SlackAlarmLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /aws/lambda/rsvp-slack-alarm
+      RetentionInDays: 30
+
+  SlackAlarmRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: SendRsvpAlarmToSlack
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${SlackWebhookParameter}
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !GetAtt SlackAlarmLogGroup.Arn
+
+  SlackAlarmFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: SlackAlarmLogGroup
+    Properties:
+      FunctionName: rsvp-slack-alarm
+      Runtime: nodejs24.x
+      Architectures: [arm64]
+      Handler: slack-alarm-worker.handler
+      Role: !GetAtt SlackAlarmRole.Arn
+      Timeout: 15
+      MemorySize: 256
+      Code:
+        S3Bucket: !Ref CodeBucket
+        S3Key: !Ref FunctionCodeKey
+      Environment:
+        Variables:
+          SLACK_WEBHOOK_PARAMETER: !Ref SlackWebhookParameter
+
+  SlackAlarmSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref AlarmTopic
+      Protocol: lambda
+      Endpoint: !GetAtt SlackAlarmFunction.Arn
+
+  SlackAlarmInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref SlackAlarmFunction
+      Action: lambda:InvokeFunction
+      Principal: sns.amazonaws.com
+      SourceArn: !Ref AlarmTopic
 
   RsvpFunctionRole:
     Type: AWS::IAM::Role
