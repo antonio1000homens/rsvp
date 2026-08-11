@@ -551,7 +551,11 @@ const startGuestRegistration = async (mode = 'register') => {
   } catch (error) { elements.registrationStatus.textContent = readableError(error); }
 };
 
-elements.retryRegistration.addEventListener('click', () => startGuestRegistration());
+elements.retryRegistration.addEventListener('click', async () => {
+  elements.registrationStatus.textContent = 'A preparar novamente a verificação pelo WhatsApp…';
+  try { await showRegistrationWhatsapp(await post('/api/rsvp/whatsapp/start', { guestId: selectedGuest.id, retry: true })); }
+  catch (error) { elements.registrationStatus.textContent = readableError(error); }
+});
 elements.reportValidationMismatch.addEventListener('click', async () => {
   elements.reportValidationMismatch.disabled = true;
   try {

@@ -803,7 +803,16 @@ export const createHandler = ({
     }
     const pendingKey = { pk: `GUEST#${guest.guestId}`, sk: 'PENDING_REGISTRATION' };
     const pending = (await ddb.send(new GetCommand({ TableName: env.RSVP_TABLE, Key: pendingKey, ConsistentRead: true }))).Item;
-    if (pending?.expiresAt >= now()) throw new ApiError(409, 'registration_already_pending');
+    if (pending?.expiresAt >= now()) {
+      if (body.retry !== true || !pending.nonce) throw new ApiError(409, 'registration_already_pending');
+      let appNumber;
+      try { appNumber = normalizeE164(await getWhatsappNumber()); } catch { throw new ApiError(503, 'whatsapp_unavailable'); }
+      const signedMessage = `contact=${encodeURIComponent(pending.sender)}&nonce=${pending.nonce}`;
+      const signature = createHmac('sha256', await getValidationSecret()).update(signedMessage, 'utf8').digest('base64url');
+      const whatsappUrl = new URL(`https://wa.me/${appNumber.slice(1)}`);
+      whatsappUrl.searchParams.set('text', `VALIDATION ${signedMessage}&sig=${signature}`);
+      return jsonResponse(200, { mode: pending.purpose || 'register', whatsappUrl: whatsappUrl.toString(), expiresAt: pending.validationExpiresAt }, { cookies: [await makeSignedCookie('rsvp_registration', { type: 'registration', nonce: pending.nonce }, PENDING_SUBMISSION_TTL_SECONDS)] });
+    }
     const sender = normalizeContactName(guest.sender || guest.nickname);
     const nonce = toBase64Url(randomBytes(32));
     const validationExpiresAt = now() + WHATSAPP_TTL_SECONDS;
