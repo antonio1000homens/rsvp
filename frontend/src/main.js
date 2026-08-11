@@ -639,7 +639,7 @@ const loadGroups = async () => {
       selectedGroup = '';
       elements.groupPicker.hidden = true;
       await loadGuests();
-      return;
+      return true;
     }
     elements.groupPicker.hidden = false;
     elements.groupSelect.replaceChildren();
@@ -649,8 +649,10 @@ const loadGroups = async () => {
     elements.groupSelect.add(placeholder);
     for (const group of groups) elements.groupSelect.add(new Option(group.name, group.id));
     elements.guestList.textContent = 'Escolha o seu grupo para encontrar o seu nome.';
+    return true;
   } catch {
     elements.guestList.textContent = 'Não foi possível carregar os grupos. Tente novamente mais tarde.';
+    return false;
   }
 };
 
@@ -675,7 +677,7 @@ const loadTriviaQuestion = async (turnstileToken) => {
   }
 };
 
-const completeValidation = async () => {
+const completeValidation = async ({ groupsAlreadyLoaded = false } = {}) => {
   elements.captcha.hidden = true;
   elements.captchaStatus.hidden = true;
   elements.triviaForm.hidden = true;
@@ -688,7 +690,7 @@ const completeValidation = async () => {
   elements.guestSearch.focus();
   elements.guestList.textContent = 'Começa a escrever para procurar o teu nome.';
   await loadRsvpSummary();
-  await loadGroups();
+  if (!groupsAlreadyLoaded) await loadGroups();
 };
 
 const answerTrivia = async (event) => {
@@ -750,6 +752,21 @@ const loadTurnstile = async () => {
   });
 };
 
+const restartSecurityValidation = async () => {
+  elements.validatedContent.hidden = true;
+  elements.triviaForm.hidden = true;
+  elements.triviaStatus.hidden = true;
+  elements.captcha.hidden = false;
+  elements.captchaStatus.hidden = false;
+  elements.captchaStatus.textContent = 'A carregar a verificação de segurança…';
+  elements.captcha.replaceChildren();
+  try {
+    await loadTurnstile();
+  } catch {
+    elements.captchaStatus.textContent = 'A verificação de segurança ainda não está configurada.';
+  }
+};
+
 elements.backButton.addEventListener('click', () => {
   showValidatedGuestSelection();
 });
@@ -764,8 +781,14 @@ elements.logout.addEventListener('click', async () => {
   elements.sessionSection.hidden = true;
   elements.sessionIntro.hidden = true;
   elements.guestSection.hidden = false;
+  elements.adminSection.hidden = true;
   selectedGuest = null;
-  await loadGroups();
+  const gateStillValid = await loadGroups();
+  if (gateStillValid) {
+    await completeValidation({ groupsAlreadyLoaded: true });
+  } else {
+    await restartSecurityValidation();
+  }
 });
 elements.triviaForm.addEventListener('submit', answerTrivia);
 elements.skipTrivia.addEventListener('click', skipTrivia);
@@ -786,7 +809,7 @@ elements.guestSearch.addEventListener('input', async () => {
 elements.rsvpForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   if (!hasMealType(elements.rsvpForm)) {
-    elements.sessionStatus.textContent = 'Seleciona pelo menos uma preferência: almoço, jantar ou copos.';
+    showToast('Seleciona pelo menos uma preferência: almoço, jantar ou copos.');
     return;
   }
   const form = new FormData(elements.rsvpForm);
@@ -810,7 +833,7 @@ elements.rsvpForm.addEventListener('submit', async (event) => {
 elements.whatsappRsvpForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   if (!hasMealType(elements.whatsappRsvpForm)) {
-    elements.status.textContent = 'Seleciona pelo menos uma preferência: almoço, jantar ou copos.';
+    showToast('Seleciona pelo menos uma preferência: almoço, jantar ou copos.');
     return;
   }
   const form = new FormData(elements.whatsappRsvpForm);
