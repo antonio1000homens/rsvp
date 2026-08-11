@@ -824,7 +824,7 @@ export const createHandler = ({
       }));
       let appNumber;
       try { appNumber = normalizeE164(await getWhatsappNumber()); } catch { throw new ApiError(503, 'whatsapp_unavailable'); }
-      const signedMessage = `nome=${encodeURIComponent(String(guest.nickname || '').replace(/ — Por confirmar$/, ''))}&nonce=${pending.nonce}`;
+      const signedMessage = `contact=${encodeURIComponent(String(guest.nickname || '').replace(/ — Por confirmar$/, ''))}&nonce=${pending.nonce}`;
       const signature = createHmac('sha256', await getValidationSecret()).update(signedMessage, 'utf8').digest('base64url');
       const whatsappUrl = new URL(`https://wa.me/${appNumber.slice(1)}`);
       whatsappUrl.searchParams.set('text', `VALIDATION ${signedMessage}&sig=${signature}`);
@@ -836,13 +836,13 @@ export const createHandler = ({
     const expiresAt = now() + PENDING_SUBMISSION_TTL_SECONDS;
     const purpose = retrieval ? 'retrieve' : recovery ? 'recover' : 'register';
     await ddb.send(new TransactWriteCommand({ TransactItems: [
-      { Put: { TableName: env.RSVP_TABLE, Item: { ...pendingKey, entityType: 'pendingRegistration', guestId: guest.guestId, nonce, sender: sender.display, senderLookup: sender.lookup, ...(response ? { response } : {}), purpose, validationExpiresAt, expiresAt, createdAt: now() }, ConditionExpression: 'attribute_not_exists(pk) OR expiresAt < :now', ExpressionAttributeValues: { ':now': now() } } },
-      { Put: { TableName: env.RSVP_TABLE, Item: { pk: `REGISTRATION#${tokenHash(nonce)}`, sk: 'CHALLENGE', entityType: 'registrationChallenge', guestId: guest.guestId, sender: sender.display, senderLookup: sender.lookup, ...(response ? { response } : {}), purpose, nonce, pendingRegistration: true, status: 'pending', validationExpiresAt, expiresAt, createdAt: now() }, ConditionExpression: 'attribute_not_exists(pk)' } },
+      { Put: { TableName: env.RSVP_TABLE, Item: { ...pendingKey, entityType: 'pendingRegistration', guestId: guest.guestId, nonce, sender: sender.display, senderLookup: sender.lookup, publicNameLookup: normalizeContactName(String(guest.nickname || '').replace(/ — Por confirmar$/, '')).lookup, ...(response ? { response } : {}), purpose, validationExpiresAt, expiresAt, createdAt: now() }, ConditionExpression: 'attribute_not_exists(pk) OR expiresAt < :now', ExpressionAttributeValues: { ':now': now() } } },
+      { Put: { TableName: env.RSVP_TABLE, Item: { pk: `REGISTRATION#${tokenHash(nonce)}`, sk: 'CHALLENGE', entityType: 'registrationChallenge', guestId: guest.guestId, sender: sender.display, senderLookup: sender.lookup, publicNameLookup: normalizeContactName(String(guest.nickname || '').replace(/ — Por confirmar$/, '')).lookup, ...(response ? { response } : {}), purpose, nonce, pendingRegistration: true, status: 'pending', validationExpiresAt, expiresAt, createdAt: now() }, ConditionExpression: 'attribute_not_exists(pk)' } },
     ] }));
     if (response) { const notification = { event: 'rsvp_submission_staged', guestId: guest.guestId, nickname: String(guest.nickname || '').replace(/ — Por confirmar$/, ''), response, wouldStoreResponse: true, storedResponse: false, persistence: 'registration_challenge', expiresAt }; console.info(JSON.stringify(notification)); void notifySlack(notification); }
     let appNumber;
     try { appNumber = normalizeE164(await getWhatsappNumber()); } catch { throw new ApiError(503, 'whatsapp_unavailable'); }
-    const signedMessage = `nome=${encodeURIComponent(String(guest.nickname || '').replace(/ — Por confirmar$/, ''))}&nonce=${nonce}`;
+    const signedMessage = `contact=${encodeURIComponent(String(guest.nickname || '').replace(/ — Por confirmar$/, ''))}&nonce=${nonce}`;
     const signature = createHmac('sha256', await getValidationSecret()).update(signedMessage, 'utf8').digest('base64url');
     const whatsappUrl = new URL(`https://wa.me/${appNumber.slice(1)}`);
     whatsappUrl.searchParams.set('text', `VALIDATION ${signedMessage}&sig=${signature}`);
@@ -1015,7 +1015,7 @@ export const createHandler = ({
     const validationExpiresAt = now() + WHATSAPP_TTL_SECONDS;
     await ddb.send(new TransactWriteCommand({ TransactItems: [
       { Update: { TableName: env.RSVP_TABLE, Key: pendingKey, UpdateExpression: 'SET nonce = :nonce, sender = :sender, senderLookup = :senderLookup, validationExpiresAt = :validationExpiresAt, lastReissuedAt = :now', ConditionExpression: 'expiresAt >= :now', ExpressionAttributeValues: { ':nonce': nonce, ':sender': sender.display, ':senderLookup': sender.lookup, ':validationExpiresAt': validationExpiresAt, ':now': now() } } },
-      { Put: { TableName: env.RSVP_TABLE, Item: { pk: `REGISTRATION#${tokenHash(nonce)}`, sk: 'CHALLENGE', entityType: 'registrationChallenge', guestId: guest.guestId, sender: sender.display, senderLookup: sender.lookup, ...(pending.response ? { response: pending.response } : {}), purpose: pending.purpose || 'register', nonce, pendingRegistration: true, status: 'pending', validationExpiresAt, expiresAt: pending.expiresAt, createdAt: now(), reissuedBy: 'admin' }, ConditionExpression: 'attribute_not_exists(pk)' } },
+      { Put: { TableName: env.RSVP_TABLE, Item: { pk: `REGISTRATION#${tokenHash(nonce)}`, sk: 'CHALLENGE', entityType: 'registrationChallenge', guestId: guest.guestId, sender: sender.display, senderLookup: sender.lookup, publicNameLookup: normalizeContactName(String(guest.nickname || '').replace(/ — Por confirmar$/, '')).lookup, ...(pending.response ? { response: pending.response } : {}), purpose: pending.purpose || 'register', nonce, pendingRegistration: true, status: 'pending', validationExpiresAt, expiresAt: pending.expiresAt, createdAt: now(), reissuedBy: 'admin' }, ConditionExpression: 'attribute_not_exists(pk)' } },
     ] }));
     let appNumber;
     try { appNumber = normalizeE164(await getWhatsappNumber()); } catch { throw new ApiError(503, 'whatsapp_unavailable'); }
@@ -1310,6 +1310,7 @@ export const createHandler = ({
         guestId: guest.guestId,
         sender: senderName.display,
         senderLookup: senderName.lookup,
+        publicNameLookup: normalizeContactName(displayName).lookup,
         status: 'pending',
         expiresAt,
         createdAt: now(),
@@ -1323,7 +1324,7 @@ export const createHandler = ({
       throw new ApiError(503, 'whatsapp_unavailable');
     }
     const publicName = encodeURIComponent(displayName);
-    const signedMessage = `nome=${publicName}&nonce=${nonce}`;
+    const signedMessage = `contact=${publicName}&nonce=${nonce}`;
     const validationSecret = await getValidationSecret();
     if (!validationSecret) throw new ApiError(503, 'validation_unavailable');
     const signature = createHmac('sha256', validationSecret).update(signedMessage, 'utf8').digest('base64url');

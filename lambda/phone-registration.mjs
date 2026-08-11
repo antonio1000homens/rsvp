@@ -42,7 +42,7 @@ export const processPhoneRegistration = async ({ sender, message, ddb, tableName
   }))).Item;
   const nickname = selectedGuest?.nickname ? String(selectedGuest.nickname).replace(/ — Por confirmar$/, '') : '';
   const expectedPublicName = selectedGuest ? normalizeContactName(String(selectedGuest.nickname || '').replace(/ — Por confirmar$/, '')) : null;
-  const messageMatchesGuest = field === 'nome'
+  const messageMatchesGuest = field === 'nome' || challenge.publicNameLookup
     ? expectedPublicName?.lookup === decodedName.lookup
     : challenge.senderLookup === decodedName.lookup;
   if (!messageMatchesGuest || normalizedSender.lookup !== challenge.senderLookup) {
