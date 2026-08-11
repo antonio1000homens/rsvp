@@ -118,7 +118,7 @@ const showToast = (message) => {
   toastTimer = window.setTimeout(() => {
     elements.toast.hidden = true;
     toastTimer = null;
-  }, 2000);
+  }, 3000);
 };
 
 const setWaiting = (waiting) => {
