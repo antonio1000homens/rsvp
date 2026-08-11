@@ -419,7 +419,7 @@ const loadRsvpSummary = async () => {
       const voters = (summary.restaurantVoters || {})[name] || [];
       const voterNames = document.createElement('small');
       voterNames.className = 'vote-names';
-      voterNames.textContent = voters.length ? voters.map(({ nickname, guestCount }) => guestCount > 1 ? `${nickname} (${guestCount})` : nickname).join(', ') : 'Ainda sem votos';
+      voterNames.textContent = voters.length ? voters.map(({ nickname, guestCount }) => guestCount > 1 ? `${nickname} (${guestCount})` : nickname).join(', ') : 'votos na Proxima ronda';
       elements.restaurantVotes.append(voterNames);
     }
     elements.rsvpSummaryTotal.textContent = `${summary.guests} pessoa(s) em ${summary.responses} resposta(s).`;
