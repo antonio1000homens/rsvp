@@ -47,6 +47,7 @@ const elements = {
   backButton: document.querySelector('#back-button'),
   sessionSection: document.querySelector('#session-section'),
   sessionIntro: document.querySelector('#session-intro'),
+  editResponseSection: document.querySelector('#edit-response-section'),
   sessionName: document.querySelector('#session-name'),
   sessionStatus: document.querySelector('#session-status'),
   toast: document.querySelector('#toast'),
@@ -173,6 +174,7 @@ const showAuthenticated = (nickname, message = '', passkeyLabel = 'Adicionar out
   elements.flowSection.hidden = true;
   elements.sessionSection.hidden = false;
   elements.sessionIntro.hidden = false;
+  elements.editResponseSection.hidden = false;
   elements.sessionName.textContent = nickname;
   elements.sessionStatus.textContent = message;
   elements.passwordForm.reset();
@@ -415,6 +417,7 @@ const showFlow = () => {
   elements.rsvpSummary.hidden = true;
   elements.sessionSection.hidden = true;
   elements.sessionIntro.hidden = true;
+  elements.editResponseSection.hidden = true;
   elements.flowSection.hidden = false;
   elements.selectedName.textContent = selectedGuest?.nickname || 'Novo registo';
   elements.whatsappPanel.hidden = true;
@@ -440,6 +443,7 @@ const showValidatedGuestSelection = () => {
   elements.flowSection.hidden = true;
   elements.sessionSection.hidden = true;
   elements.sessionIntro.hidden = true;
+  elements.editResponseSection.hidden = true;
   elements.guestSection.hidden = false;
   elements.captcha.hidden = true;
   elements.captchaStatus.hidden = true;
@@ -842,6 +846,7 @@ elements.logout.addEventListener('click', async () => {
   await post('/api/auth/logout').catch(() => {});
   elements.sessionSection.hidden = true;
   elements.sessionIntro.hidden = true;
+  elements.editResponseSection.hidden = true;
   elements.guestSection.hidden = false;
   elements.adminSection.hidden = true;
   selectedGuest = null;

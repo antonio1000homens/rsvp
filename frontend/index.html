@@ -13,6 +13,33 @@
       <p class="eyebrow">Está convidado</p>
       <h1>Calçada 2026</h1>
       <p id="session-intro" class="intro" hidden>Sessão iniciada como <strong id="session-name"></strong>.</p>
+      <details id="edit-response-section" class="collapsible" hidden>
+        <summary>Editar a minha resposta</summary>
+        <form id="rsvp-form" class="rsvp-form">
+          <fieldset>
+            <legend>Em que dias podes?</legend>
+            <div id="availability-days" class="choice-grid"></div>
+          </fieldset>
+          <label for="guest-count">Quantas pessoas, incluindo-te?</label>
+          <input id="guest-count" name="guestCount" type="number" min="1" max="12" value="1" required>
+          <label for="preference-type">Preferência</label>
+          <select id="preference-type" name="preferenceType" required><option value="adults">18+</option><option value="plusOnes">+1s</option><option value="families">Famílias</option></select>
+          <fieldset>
+            <legend>O que preferes?</legend>
+            <div class="choice-grid">
+              <label><input type="checkbox" name="mealTypes" value="lunch"> Almoço</label>
+              <label><input type="checkbox" name="mealTypes" value="dinner"> Jantar</label>
+              <label><input type="checkbox" name="mealTypes" value="drinks"> Copos</label>
+            </div>
+          </fieldset>
+          <fieldset><legend>Restaurantes propostos (podes escolher mais do que um)</legend><div id="restaurant-choices" class="choice-grid"></div></fieldset>
+          <label for="proposed-restaurants">Outros restaurantes que propões (um por linha)</label>
+          <textarea id="proposed-restaurants" name="proposedRestaurantChoices" maxlength="600" placeholder="Nome do restaurante"></textarea>
+          <label for="dietary-restrictions">Restrições alimentares, requisitos, notas</label>
+          <textarea id="dietary-restrictions" name="dietaryRestrictions" maxlength="500" placeholder="Nenhuma"></textarea>
+          <button type="submit">Guardar disponibilidade</button>
+        </form>
+      </details>
 
       <section id="guest-section">
         <h2 id="guest-heading" hidden>Já está registado?</h2>
@@ -117,33 +144,6 @@
       </section>
 
       <section id="session-section" hidden>
-        <details class="collapsible">
-          <summary>Editar a minha resposta</summary>
-        <form id="rsvp-form" class="rsvp-form">
-          <fieldset>
-            <legend>Em que dias podes?</legend>
-            <div id="availability-days" class="choice-grid"></div>
-          </fieldset>
-          <label for="guest-count">Quantas pessoas, incluindo-te?</label>
-          <input id="guest-count" name="guestCount" type="number" min="1" max="12" value="1" required>
-          <label for="preference-type">Preferência</label>
-          <select id="preference-type" name="preferenceType" required><option value="adults">18+</option><option value="plusOnes">+1s</option><option value="families">Famílias</option></select>
-          <fieldset>
-            <legend>O que preferes?</legend>
-            <div class="choice-grid">
-              <label><input type="checkbox" name="mealTypes" value="lunch"> Almoço</label>
-              <label><input type="checkbox" name="mealTypes" value="dinner"> Jantar</label>
-              <label><input type="checkbox" name="mealTypes" value="drinks"> Copos</label>
-            </div>
-          </fieldset>
-          <fieldset><legend>Restaurantes propostos (podes escolher mais do que um)</legend><div id="restaurant-choices" class="choice-grid"></div></fieldset>
-          <label for="proposed-restaurants">Outros restaurantes que propões (um por linha)</label>
-          <textarea id="proposed-restaurants" name="proposedRestaurantChoices" maxlength="600" placeholder="Nome do restaurante"></textarea>
-          <label for="dietary-restrictions">Restrições alimentares, requisitos, notas</label>
-          <textarea id="dietary-restrictions" name="dietaryRestrictions" maxlength="500" placeholder="Nenhuma"></textarea>
-          <button type="submit">Guardar disponibilidade</button>
-        </form>
-        </details>
         <details class="collapsible">
           <summary>Configurar perfil</summary>
           <details id="link-section" class="link-section" hidden>
