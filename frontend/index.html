@@ -183,6 +183,7 @@
             <textarea id="admin-trivia" name="trivia" maxlength="6000" placeholder="Pergunta | resposta aceite, outra resposta"></textarea>
             <p class="fine-print">Uma pergunta por linha. Separe a pergunta das respostas com <code>|</code>; respostas alternativas são separadas por vírgulas.</p>
             <label><input id="admin-use-trivia" name="useTrivia" type="checkbox"> Usar perguntas de validação</label>
+            <label><input id="admin-use-whatsapp-verification" name="useWhatsappVerification" type="checkbox"> Exigir validação WhatsApp</label>
             <button type="submit">Guardar definições do evento</button>
           </form>
           <form id="admin-summary-form" class="rsvp-form">
@@ -232,6 +233,7 @@
             <h3>Recuperar validação WhatsApp pendente</h3>
             <p class="fine-print">Gera uma nova mensagem de validação para a submissão pendente, sem pedir ao convidado para preencher novamente as escolhas. A mensagem anterior deixa de funcionar.</p>
             <button id="admin-reissue-registration" type="button">Gerar nova validação WhatsApp</button>
+            <button id="admin-recover-registration" type="button" class="secondary">Recuperar votação e gerar link seguro</button>
             <label for="admin-reissue-registration-value" hidden>Link de validação WhatsApp</label>
             <input id="admin-reissue-registration-value" type="url" readonly hidden>
             <button id="admin-copy-reissue-registration" type="button" hidden>Copiar link</button>

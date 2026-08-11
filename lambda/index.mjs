@@ -782,7 +782,9 @@ export const createHandler = ({
     const recovery = body.mode === 'recover';
     const response = retrieval || recovery ? null : responseChoices(body, config.days);
     if (response) validateRestaurantChoices(response.restaurantChoices, config.restaurantChoices);
-    if (response && env.WHATSAPP_VERIFICATION_REQUIRED === 'false') {
+    const settings = await eventSettings();
+    const whatsappVerificationRequired = settings.useWhatsappVerification !== false && env.WHATSAPP_VERIFICATION_REQUIRED !== 'false';
+    if (response && !whatsappVerificationRequired) {
       const timestamp = now();
       await ddb.send(new TransactWriteCommand({ TransactItems: [
         { Update: { TableName: env.RSVP_TABLE, Key: { pk: `GUEST#${guest.guestId}`, sk: 'PROFILE' }, UpdateExpression: 'SET identityStatus = :confirmed, updatedAt = :now', ConditionExpression: 'enabled = :enabled', ExpressionAttributeValues: { ':confirmed': 'confirmed', ':enabled': true, ':now': timestamp } } },
@@ -876,7 +878,7 @@ export const createHandler = ({
   const adminSettings = async (event) => {
     await requireAdmin(event);
     const settings = await eventSettings();
-    return jsonResponse(200, { ...(await rsvpConfig()), triviaQuestions: settings.triviaQuestions || [], useTrivia: Boolean(settings.useTrivia) });
+    return jsonResponse(200, { ...(await rsvpConfig()), triviaQuestions: settings.triviaQuestions || [], useTrivia: Boolean(settings.useTrivia), useWhatsappVerification: settings.useWhatsappVerification !== false });
   };
 
   const adminSummary = async (event) => {
@@ -910,8 +912,9 @@ export const createHandler = ({
     const useTrivia = !(existing.triviaQuestions || []).length && triviaQuestions.length
       ? true
       : Boolean(body.useTrivia) && triviaQuestions.length > 0;
-    await ddb.send(new PutCommand({ TableName: env.RSVP_TABLE, Item: { pk: 'EVENT#DEFAULT', sk: 'SETTINGS', entityType: 'eventSettings', restaurantChoices, triviaQuestions, useTrivia, updatedAt: now() } }));
-    return jsonResponse(200, { saved: true, ...(await rsvpConfig()), triviaQuestions, useTrivia });
+    const useWhatsappVerification = body.useWhatsappVerification !== false;
+    await ddb.send(new PutCommand({ TableName: env.RSVP_TABLE, Item: { pk: 'EVENT#DEFAULT', sk: 'SETTINGS', entityType: 'eventSettings', restaurantChoices, triviaQuestions, useTrivia, useWhatsappVerification, updatedAt: now() } }));
+    return jsonResponse(200, { saved: true, ...(await rsvpConfig()), triviaQuestions, useTrivia, useWhatsappVerification });
   };
 
   const adminGroups = async (event) => {
@@ -988,6 +991,32 @@ export const createHandler = ({
     const whatsappUrl = new URL(`https://wa.me/${appNumber.slice(1)}`);
     whatsappUrl.searchParams.set('text', `VALIDATION ${signedMessage}&sig=${signature}`);
     return jsonResponse(200, { whatsappUrl: whatsappUrl.toString(), expiresAt: validationExpiresAt });
+  };
+
+  const recoverGuestRegistration = async (event) => {
+    await requireAdmin(event);
+    const body = parseJsonBody(event);
+    const guest = await getGuest(validGuestId(body.guestId));
+    const pendingKey = { pk: `GUEST#${guest.guestId}`, sk: 'PENDING_REGISTRATION' };
+    const pending = (await ddb.send(new GetCommand({ TableName: env.RSVP_TABLE, Key: pendingKey, ConsistentRead: true }))).Item;
+    if (!pending || pending.expiresAt < now()) throw new ApiError(404, 'pending_submission_not_found');
+    const challengeKey = { pk: `REGISTRATION#${tokenHash(pending.nonce)}`, sk: 'CHALLENGE' };
+    const token = toBase64Url(nodeRandomBytes(32));
+    const hash = tokenHash(token);
+    const expiresAt = now() + ACCESS_LINK_TTL_SECONDS;
+    const actions = [
+      { Update: { TableName: env.RSVP_TABLE, Key: challengeKey, UpdateExpression: 'SET #status = :created, approvedAt = :now, recoveredByAdmin = :true', ConditionExpression: '#status = :pending', ExpressionAttributeNames: { '#status': 'status' }, ExpressionAttributeValues: { ':created': 'created', ':pending': 'pending', ':now': now(), ':true': true } } },
+      { Delete: { TableName: env.RSVP_TABLE, Key: pendingKey, ConditionExpression: 'nonce = :nonce', ExpressionAttributeValues: { ':nonce': pending.nonce } } },
+      { Update: { TableName: env.RSVP_TABLE, Key: { pk: `GUEST#${guest.guestId}`, sk: 'PROFILE' }, UpdateExpression: 'SET identityStatus = :confirmed, lastRegistrationApprovedAt = :now, updatedAt = :now', ConditionExpression: 'enabled = :enabled', ExpressionAttributeValues: { ':confirmed': 'confirmed', ':enabled': true, ':now': now() } } },
+    ];
+    if (pending.response) actions.push({ Put: { TableName: env.RSVP_TABLE, Item: { pk: `RSVP#${guest.guestId}`, sk: 'RESPONSE', entityType: 'rsvpResponse', guestId: guest.guestId, ...pending.response, updatedAt: now() } } });
+    actions.push(
+      { Put: { TableName: env.RSVP_TABLE, Item: { pk: `ACCESS_LINK#${hash}`, sk: 'LINK', entityType: 'guestAccessLink', guestId: guest.guestId, tokenHash: hash, expiresAt, createdAt: now(), recoveredByAdmin: true }, ConditionExpression: 'attribute_not_exists(pk)' } },
+      { Put: { TableName: env.RSVP_TABLE, Item: { pk: `GUEST#${guest.guestId}`, sk: 'ACCESS_LINK', entityType: 'guestAccessLinkPointer', tokenHash: hash, expiresAt, createdAt: now() } } },
+    );
+    try { await ddb.send(new TransactWriteCommand({ TransactItems: actions })); } catch (error) { if (conditionalFailure(error)) throw new ApiError(409, 'registration_recovery_unavailable'); throw error; }
+    const siteOrigin = new URL(env.WEBAUTHN_EXPECTED_ORIGIN || 'https://calcada2026.pt').origin;
+    return jsonResponse(200, { link: `${siteOrigin}/?access=${encodeURIComponent(token)}`, expiresAt, recovered: true });
   };
 
   const consumeGuestAccessLink = async (event) => {
@@ -1482,6 +1511,7 @@ export const createHandler = ({
     if (path === '/api/admin/guests' && method === 'DELETE') return removeAdminGuest(event);
     if (path === '/api/admin/guests/access-link' && method === 'POST') return createGuestAccessLink(event);
     if (path === '/api/admin/guests/reissue-registration' && method === 'POST') return reissueGuestRegistration(event);
+    if (path === '/api/admin/guests/recover-registration' && method === 'POST') return recoverGuestRegistration(event);
     if (path === '/api/access-link/consume' && method === 'POST') return consumeGuestAccessLink(event);
     if (path === '/api/auth/start' && method === 'POST') return authStart(event);
     if (path === '/api/auth/password/login' && method === 'POST') return passwordLogin(event);
