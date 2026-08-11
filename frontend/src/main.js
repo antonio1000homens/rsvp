@@ -681,10 +681,6 @@ const consumeAccessLink = async (token) => {
 const loadGuests = async (turnstileToken = '', query = elements.guestSearch.value.trim()) => {
   const lookupGeneration = ++guestLookupGeneration;
   elements.guestList.replaceChildren();
-  if (!query) {
-    elements.guestList.textContent = 'Começa a escrever para procurar o teu nome.';
-    return;
-  }
   try {
     const params = new URLSearchParams();
     if (selectedGroup) params.set('group', selectedGroup);
@@ -740,7 +736,7 @@ const loadGroups = async () => {
     placeholder.selected = true;
     elements.groupSelect.add(placeholder);
     for (const group of groups) elements.groupSelect.add(new Option(group.name, group.id));
-    elements.guestList.textContent = 'Escolha o seu grupo para encontrar o seu nome.';
+    await loadGuests();
     return true;
   } catch {
     elements.guestList.textContent = 'Não foi possível carregar os grupos. Tente novamente mais tarde.';
