@@ -489,6 +489,8 @@ export const createHandler = ({
   const requireGuestEntry = async (event, guestId) => {
     const linkedGuest = await accessLinkGuest(event);
     if (linkedGuest?.guestId === guestId) return;
+    const sessionGuest = await readSessionGuest(event);
+    if (sessionGuest?.isAdmin === true) return;
     await requireTriviaGate(event);
   };
 

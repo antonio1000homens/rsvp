@@ -493,6 +493,16 @@ test('auth start advertises both passkey and password without starting a QR flow
   assert.ok(started.cookies?.some((cookie) => cookie.startsWith('rsvp_webauthn=')));
 });
 
+test('an authenticated admin can switch guest identity without repeating the public gate', async () => {
+  const admin = guest({ isAdmin: true });
+  const target = guest({ guestId: '223e4567-e89b-42d3-a456-426614174001', pk: 'GUEST#223e4567-e89b-42d3-a456-426614174001', nickname: 'Outro convidado' });
+  const { handler } = makeHandler({ items: [admin, target] });
+  const session = signToken({ type: 'session', guestId: admin.guestId, sessionVersion: 1, exp: fixedNow + 600 }, values['/rsvp/session-secret']);
+  const started = await handler(request('/api/auth/start', { method: 'POST', cookies: [`rsvp_session=${session}`], body: { guestId: target.guestId } }));
+  assert.equal(started.statusCode, 200);
+  assert.equal(JSON.parse(started.body).mode, 'whatsapp-rsvp');
+});
+
 test('password hashes are salted and verify without exposing the plaintext', () => {
   const first = hashPassword('correct horse battery staple');
   const second = hashPassword('correct horse battery staple');
