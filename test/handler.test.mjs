@@ -353,7 +353,7 @@ test('an admin-issued guest link bypasses trivia only until credentials are conf
   const token = new URL(JSON.parse(created.body).link).searchParams.get('access');
   const firstUse = await handler(request('/api/access-link/consume', { method: 'POST', cookies: [], body: { token } }));
   assert.equal(JSON.parse(firstUse.body).mode, 'session');
-  assert.ok(firstUse.cookies?.some((cookie) => cookie.startsWith('rsvp_session=')));
+  assert.match(firstUse.cookies?.find((cookie) => cookie.startsWith('rsvp_session=')) || '', /Max-Age=604800/);
 
   const password = { pk: `GUEST#${profile.guestId}`, sk: 'PASSWORD', entityType: 'passwordCredential', passwordHash: 'not-a-valid-password-hash' };
   ddb.items.set(keyOf(password), password);

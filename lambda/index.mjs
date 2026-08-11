@@ -57,6 +57,7 @@ const WHATSAPP_TTL_SECONDS = 30 * 60;
 const PENDING_SUBMISSION_TTL_SECONDS = 24 * 60 * 60;
 const WEBAUTHN_TTL_SECONDS = 5 * 60;
 const SESSION_TTL_SECONDS = 24 * 60 * 60;
+const ADMIN_SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
 const CAPTCHA_TTL_SECONDS = 15 * 60;
 const ACCESS_LINK_TTL_SECONDS = 30 * 24 * 60 * 60;
 const ACCESS_LINK_AUTH_TTL_SECONDS = 10 * 60;
@@ -409,7 +410,7 @@ export const createHandler = ({
     type: 'session',
     guestId: guest.guestId,
     sessionVersion: Number(guest.sessionVersion || 1),
-  }, SESSION_TTL_SECONDS);
+  }, guest.isAdmin === true ? ADMIN_SESSION_TTL_SECONDS : SESSION_TTL_SECONDS);
 
   const readCaptchaGate = async (event) => {
     const token = await readSignedCookie(event, 'rsvp_captcha');
@@ -923,17 +924,28 @@ export const createHandler = ({
 
   const adminGuests = async (event) => {
     await requireAdmin(event);
-    const result = await ddb.send(new ScanCommand({
+    const [result, pendingResult] = await Promise.all([ddb.send(new ScanCommand({
       TableName: env.RSVP_TABLE,
       FilterExpression: 'sk = :profile AND entityType = :guest AND enabled = :enabled',
       ExpressionAttributeValues: { ':profile': 'PROFILE', ':guest': 'guest', ':enabled': true },
-      ProjectionExpression: 'guestId, nickname, sender, identityStatus',
-    }));
+      ProjectionExpression: 'guestId, nickname, sender, identityStatus, lastRegistrationApprovedAt',
+    })), ddb.send(new ScanCommand({
+      TableName: env.RSVP_TABLE,
+      FilterExpression: 'sk = :pending AND entityType = :pendingType',
+      ExpressionAttributeValues: { ':pending': 'PENDING_REGISTRATION', ':pendingType': 'pendingRegistration' },
+      ProjectionExpression: 'guestId, validationExpiresAt, expiresAt, entityType',
+    }))]);
+    const pendingByGuest = new Map((pendingResult.Items || [])
+      .filter((item) => item.entityType === 'pendingRegistration' && item.expiresAt >= now())
+      .map((item) => [item.guestId, item]));
     const guests = (result.Items || []).map((guest) => ({
       id: guest.guestId,
       nickname: String(guest.nickname || '').replace(/ — Por confirmar$/, ''),
       sender: String(guest.sender || ''),
       identityStatus: guest.identityStatus || 'unconfirmed',
+      lastRegistrationApprovedAt: guest.lastRegistrationApprovedAt || null,
+      pendingRegistration: pendingByGuest.has(guest.guestId),
+      validationExpiresAt: pendingByGuest.get(guest.guestId)?.validationExpiresAt || null,
     })).sort((left, right) => left.nickname.localeCompare(right.nickname));
     return jsonResponse(200, { guests });
   };

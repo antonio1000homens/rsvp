@@ -65,12 +65,18 @@ const elements = {
   adminGuestNickname: document.querySelector('#admin-guest-nickname'),
   adminGuestSender: document.querySelector('#admin-guest-sender'),
   adminGuestStatus: document.querySelector('#admin-guest-status'),
+  adminRegistrationStatus: document.querySelector('#admin-registration-status'),
+  adminRefreshGuestStatus: document.querySelector('#admin-refresh-guest-status'),
   adminGuestAccessLink: document.querySelector('#admin-guest-access-link'),
   adminGuestAccessLinkValue: document.querySelector('#admin-guest-access-link-value'),
   adminCopyGuestAccessLink: document.querySelector('#admin-copy-guest-access-link'),
+  adminShareGuestAccessLink: document.querySelector('#admin-share-guest-access-link'),
+  adminGuestAccessLinkQr: document.querySelector('#admin-guest-access-link-qr'),
   adminReissueRegistration: document.querySelector('#admin-reissue-registration'),
   adminReissueRegistrationValue: document.querySelector('#admin-reissue-registration-value'),
   adminCopyReissueRegistration: document.querySelector('#admin-copy-reissue-registration'),
+  adminShareReissueRegistration: document.querySelector('#admin-share-reissue-registration'),
+  adminReissueRegistrationQr: document.querySelector('#admin-reissue-registration-qr'),
   adminAddGuestForm: document.querySelector('#admin-add-guest-form'),
   adminNewGuestNickname: document.querySelector('#admin-new-guest-nickname'),
   adminNewGuestSender: document.querySelector('#admin-new-guest-sender'),
@@ -139,6 +145,13 @@ const api = async (path, options = {}) => {
   });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
+    if (response.status === 401 && ['authentication_required', 'session_expired'].includes(body.error)) {
+      if (!window.__rsvpSessionReloading) {
+        window.__rsvpSessionReloading = true;
+        window.location.reload();
+      }
+      await new Promise(() => {});
+    }
     const error = new Error(body.message || 'O pedido falhou.');
     error.code = body.error;
     error.status = response.status;
@@ -301,16 +314,49 @@ const loadAdmin = async () => {
   }
 };
 
+const adminShareUrl = (link) => `https://wa.me/?text=${encodeURIComponent(link)}`;
+
+const formatAdminTimestamp = (value) => new Intl.DateTimeFormat('pt-PT', {
+  dateStyle: 'short', timeStyle: 'short',
+}).format(new Date(Number(value) * 1000));
+
+const renderAdminGuest = (guest) => {
+  if (!guest) {
+    elements.adminRegistrationStatus.textContent = '';
+    return;
+  }
+  elements.adminGuestNickname.value = guest.nickname;
+  elements.adminGuestSender.value = guest.sender;
+  if (guest.pendingRegistration) {
+    const expires = guest.validationExpiresAt ? ` até ${formatAdminTimestamp(guest.validationExpiresAt)}` : '';
+    elements.adminRegistrationStatus.textContent = `Validação WhatsApp pendente${expires}. Podes gerar um novo QR se for necessário.`;
+  } else if (guest.lastRegistrationApprovedAt) {
+    elements.adminRegistrationStatus.textContent = `WhatsApp confirmado em ${formatAdminTimestamp(guest.lastRegistrationApprovedAt)}. Gera um link seguro para o convidado criar uma palavra-passe ou chave de acesso.`;
+  } else {
+    elements.adminRegistrationStatus.textContent = 'Não existe uma validação WhatsApp pendente.';
+  }
+};
+
+const hideAdminGuestLinks = () => {
+  elements.adminGuestAccessLinkValue.hidden = true;
+  elements.adminCopyGuestAccessLink.hidden = true;
+  elements.adminShareGuestAccessLink.hidden = true;
+  elements.adminGuestAccessLinkQr.hidden = true;
+  elements.adminReissueRegistrationValue.hidden = true;
+  elements.adminCopyReissueRegistration.hidden = true;
+  elements.adminShareReissueRegistration.hidden = true;
+  elements.adminReissueRegistrationQr.hidden = true;
+};
+
 const loadAdminGuests = async () => {
+  const selectedGuestId = elements.adminGuestSelect.value;
   const { guests } = await api('/api/admin/guests');
   elements.adminGuestSelect.replaceChildren(...guests.map((guest) => new Option(`${guest.nickname} (${guest.sender || 'sem remetente'})`, guest.id)));
-  const selected = guests[0];
-  if (selected) {
-    elements.adminGuestNickname.value = selected.nickname;
-    elements.adminGuestSender.value = selected.sender;
-  }
+  const selected = guests.find((guest) => guest.id === selectedGuestId) || guests[0];
+  if (selected) elements.adminGuestSelect.value = selected.id;
   elements.adminGuestSelect._guests = guests;
   elements.adminRemoveGuest.disabled = !selected;
+  renderAdminGuest(selected);
 };
 
 const loadRsvpSummary = async () => {
@@ -363,6 +409,7 @@ const loadRsvpSummary = async () => {
 const showFlow = () => {
   setWaiting(false);
   elements.guestSection.hidden = true;
+  elements.rsvpSummary.hidden = true;
   elements.sessionSection.hidden = true;
   elements.sessionIntro.hidden = true;
   elements.flowSection.hidden = false;
@@ -380,6 +427,7 @@ const showFlow = () => {
   elements.passwordLoginInput.hidden = false;
   elements.passwordLoginForm.querySelector('button[type="submit"]').hidden = false;
   elements.passwordLoginStatus.textContent = '';
+  window.requestAnimationFrame(() => elements.flowSection.scrollIntoView({ block: 'start' }));
 };
 
 const showValidatedGuestSelection = () => {
@@ -397,6 +445,7 @@ const showValidatedGuestSelection = () => {
   elements.validatedContent.hidden = false;
   elements.validationReportPanel.hidden = true;
   elements.reportValidationMismatch.hidden = true;
+  loadRsvpSummary();
 };
 
 const showRegistrationWhatsapp = async (result) => {
@@ -481,6 +530,7 @@ const readableError = (error) => {
   if (error.name === 'NotAllowedError') return 'A utilização da chave de acesso foi cancelada ou expirou.';
   if (error.code === 'whatsapp_unavailable') return 'O início de sessão pelo WhatsApp ainda não está configurado.';
   if (error.code === 'authentication_challenge_expired') return 'Esta tentativa de início de sessão expirou. Tente novamente.';
+  if (error.code === 'authentication_required' || error.code === 'session_expired') return 'A sessão expirou. A iniciar novamente…';
   if (error.code === 'passkey_verification_failed') return 'Não foi possível verificar essa chave de acesso.';
   if (error.code === 'password_verification_failed') return 'Palavra-passe incorreta. Podes recuperar pelo WhatsApp.';
   if (error.code === 'password_confirmation_mismatch') return 'As palavras-passe não coincidem.';
@@ -892,12 +942,16 @@ elements.adminSummaryForm.addEventListener('submit', async (event) => {
 elements.adminGuestSelect.addEventListener('change', () => {
   const guest = elements.adminGuestSelect._guests?.find((item) => item.id === elements.adminGuestSelect.value);
   if (!guest) return;
-  elements.adminGuestNickname.value = guest.nickname;
-  elements.adminGuestSender.value = guest.sender;
-  elements.adminGuestAccessLinkValue.hidden = true;
-  elements.adminCopyGuestAccessLink.hidden = true;
-  elements.adminReissueRegistrationValue.hidden = true;
-  elements.adminCopyReissueRegistration.hidden = true;
+  renderAdminGuest(guest);
+  hideAdminGuestLinks();
+});
+elements.adminRefreshGuestStatus.addEventListener('click', async () => {
+  elements.adminRefreshGuestStatus.disabled = true;
+  try {
+    await loadAdminGuests();
+    showToast('Estado de validação atualizado.');
+  } catch (error) { elements.adminGuestStatus.textContent = readableError(error); }
+  finally { elements.adminRefreshGuestStatus.disabled = false; }
 });
 elements.adminGuestAccessLink.addEventListener('click', async () => {
   const guestId = elements.adminGuestSelect.value;
@@ -908,6 +962,10 @@ elements.adminGuestAccessLink.addEventListener('click', async () => {
     elements.adminGuestAccessLinkValue.value = result.link;
     elements.adminGuestAccessLinkValue.hidden = false;
     elements.adminCopyGuestAccessLink.hidden = false;
+    elements.adminShareGuestAccessLink.href = adminShareUrl(result.link);
+    elements.adminShareGuestAccessLink.hidden = false;
+    await QRCode.toCanvas(elements.adminGuestAccessLinkQr, result.link, { width: 228, margin: 1, errorCorrectionLevel: 'M' });
+    elements.adminGuestAccessLinkQr.hidden = false;
     showToast('Link seguro criado. O link anterior foi revogado.');
   } catch (error) { elements.adminGuestStatus.textContent = readableError(error); }
   finally { elements.adminGuestAccessLink.disabled = false; }
@@ -925,6 +983,10 @@ elements.adminReissueRegistration.addEventListener('click', async () => {
     elements.adminReissueRegistrationValue.value = result.whatsappUrl;
     elements.adminReissueRegistrationValue.hidden = false;
     elements.adminCopyReissueRegistration.hidden = false;
+    elements.adminShareReissueRegistration.href = adminShareUrl(result.whatsappUrl);
+    elements.adminShareReissueRegistration.hidden = false;
+    await QRCode.toCanvas(elements.adminReissueRegistrationQr, result.whatsappUrl, { width: 228, margin: 1, errorCorrectionLevel: 'M' });
+    elements.adminReissueRegistrationQr.hidden = false;
     showToast('Nova validação WhatsApp criada. A mensagem anterior foi revogada.');
   } catch (error) { elements.adminGuestStatus.textContent = readableError(error); }
   finally { elements.adminReissueRegistration.disabled = false; }
