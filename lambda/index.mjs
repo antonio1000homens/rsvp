@@ -805,6 +805,14 @@ export const createHandler = ({
     const pending = (await ddb.send(new GetCommand({ TableName: env.RSVP_TABLE, Key: pendingKey, ConsistentRead: true }))).Item;
     if (pending?.expiresAt >= now()) {
       if (!pending.nonce) throw new ApiError(409, 'registration_already_pending');
+      await ddb.send(new UpdateCommand({
+        TableName: env.RSVP_TABLE,
+        Key: { pk: `REGISTRATION#${tokenHash(pending.nonce)}`, sk: 'CHALLENGE' },
+        UpdateExpression: 'REMOVE lastError, lastErrorAt',
+        ConditionExpression: '#status = :pending',
+        ExpressionAttributeNames: { '#status': 'status' },
+        ExpressionAttributeValues: { ':pending': 'pending' },
+      }));
       let appNumber;
       try { appNumber = normalizeE164(await getWhatsappNumber()); } catch { throw new ApiError(503, 'whatsapp_unavailable'); }
       const signedMessage = `contact=${encodeURIComponent(pending.sender)}&nonce=${pending.nonce}`;
