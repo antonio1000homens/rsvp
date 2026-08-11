@@ -1113,8 +1113,13 @@ export const createHandler = ({
     await requireAdmin(event);
     const body = parseJsonBody(event);
     const guest = await getGuest(validGuestId(body.guestId));
-    await ddb.send(new PutCommand({ TableName: env.RSVP_TABLE, Item: { ...guest, enabled: false, sessionVersion: Number(guest.sessionVersion || 1) + 1, updatedAt: now() } }));
-    return jsonResponse(200, { removed: true, guestId: guest.guestId });
+    const marker = await guestLink(guest.guestId);
+    const guestIds = marker?.status === 'active' ? [guest.guestId, marker.otherGuestId] : [guest.guestId];
+    await ddb.send(new TransactWriteCommand({ TransactItems: [
+      { Put: { TableName: env.RSVP_TABLE, Item: { ...guest, enabled: false, sessionVersion: Number(guest.sessionVersion || 1) + 1, updatedAt: now() } } },
+      ...guestIds.map((guestId) => ({ Delete: { TableName: env.RSVP_TABLE, Key: { pk: `RSVP#${guestId}`, sk: 'RESPONSE' } } })),
+    ] }));
+    return jsonResponse(200, { removed: true, guestId: guest.guestId, resetGuestIds: guestIds });
   };
 
   const requestNewContact = async (event) => {
