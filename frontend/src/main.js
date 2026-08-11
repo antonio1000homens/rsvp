@@ -707,14 +707,14 @@ const loadGuests = async (turnstileToken = '', query = elements.guestSearch.valu
         pair.append(label);
         for (const member of guest.members) {
           const button = document.createElement('button');
-          button.type = 'button'; button.className = 'guest-button'; button.textContent = `Entrar como ${member.nickname}`;
+          button.type = 'button'; button.className = `guest-button${member.configurationRequired ? ' guest-button-pending' : ''}`; button.textContent = `Entrar como ${member.nickname}`;
           button.addEventListener('click', () => selectGuest(member));
           pair.append(button);
         }
         elements.guestList.append(pair);
       } else {
         const button = document.createElement('button');
-        button.type = 'button'; button.className = 'guest-button'; button.textContent = guest.nickname;
+        button.type = 'button'; button.className = `guest-button${guest.configurationRequired ? ' guest-button-pending' : ''}`; button.textContent = guest.nickname;
         button.addEventListener('click', () => selectGuest(guest));
         elements.guestList.append(button);
       }

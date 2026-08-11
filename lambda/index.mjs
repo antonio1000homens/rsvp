@@ -595,7 +595,7 @@ export const createHandler = ({
       profiles = result.Items || [];
     }
     const visibleProfiles = profiles.filter((profile) => {
-      if (!profile || profile.identityStatus === 'to_add') return false;
+      if (!profile) return false;
       try {
         return normalizeContactName(profile.nickname.replace(/ — Por confirmar$/, '')).lookup.includes(search.lookup);
       } catch { return false; }
@@ -614,6 +614,7 @@ export const createHandler = ({
           id: guestId,
           nickname: nickname.replace(/ — Por confirmar$/, ''),
           registrationRequired: identityStatus === 'unconfirmed' || nickname.endsWith(' — Por confirmar'),
+          ...(identityStatus === 'to_add' ? { configurationRequired: true } : {}),
         }));
         guests.push({ id: members[0].id, nickname: members.map((member) => member.nickname).join(' & '), linked: true, members });
         rendered.add(profile.guestId); rendered.add(other.guestId);
@@ -624,6 +625,7 @@ export const createHandler = ({
         id: profile.guestId,
         nickname: profile.nickname.replace(/ — Por confirmar$/, ''),
         registrationRequired: profile.identityStatus === 'unconfirmed' || profile.nickname.endsWith(' — Por confirmar'),
+        ...(profile.identityStatus === 'to_add' ? { configurationRequired: true } : {}),
       });
     }
     guests.sort((left, right) => left.nickname.localeCompare(right.nickname));
