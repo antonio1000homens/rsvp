@@ -1098,6 +1098,12 @@ export const createHandler = ({
     if (duplicate) throw new ApiError(409, 'duplicate_guest_nickname');
     const identityStatus = guest.identityStatus === 'to_add' ? 'unconfirmed' : guest.identityStatus;
     await ddb.send(new PutCommand({ TableName: env.RSVP_TABLE, Item: { ...guest, nickname: nickname.display, nicknameLookup: nickname.lookup, sender: sender.display, senderLookup: sender.lookup, identityStatus, updatedAt: now() } }));
+    const pendingKey = { pk: `GUEST#${guest.guestId}`, sk: 'PENDING_REGISTRATION' };
+    const pending = (await ddb.send(new GetCommand({ TableName: env.RSVP_TABLE, Key: pendingKey, ConsistentRead: true }))).Item;
+    if (pending?.nonce && pending.expiresAt >= now()) {
+      await ddb.send(new UpdateCommand({ TableName: env.RSVP_TABLE, Key: pendingKey, UpdateExpression: 'SET sender = :sender, senderLookup = :senderLookup', ExpressionAttributeValues: { ':sender': sender.display, ':senderLookup': sender.lookup } }));
+      await ddb.send(new UpdateCommand({ TableName: env.RSVP_TABLE, Key: { pk: `REGISTRATION#${tokenHash(pending.nonce)}`, sk: 'CHALLENGE' }, UpdateExpression: 'SET sender = :sender, senderLookup = :senderLookup REMOVE lastError, lastErrorAt', ConditionExpression: '#status = :pending', ExpressionAttributeNames: { '#status': 'status' }, ExpressionAttributeValues: { ':sender': sender.display, ':senderLookup': sender.lookup, ':pending': 'pending' } }));
+    }
     return jsonResponse(200, { saved: true, guest: { id: guest.guestId, nickname: nickname.display, sender: sender.display, identityStatus: guest.identityStatus || 'unconfirmed' } });
   };
 
