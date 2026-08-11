@@ -102,7 +102,7 @@ summary_dlq_alarm="$(aws_cli cloudwatch describe-alarms --alarm-names rsvp-summa
 [ "${summary_dlq_alarm}" = 'rsvp-summary-dlq-not-empty' ]
 
 retention="$(aws_cli logs describe-log-groups --log-group-name-prefix "/aws/lambda/${function_name}" --query 'logGroups[?logGroupName==`/aws/lambda/'"${function_name}"'`].retentionInDays | [0]' --output text)"
-[ "${retention}" = '7' ]
+[ "${retention}" = '30' ]
 
 http_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "${function_url}")"
 [ "${http_status}" = '403' ]
