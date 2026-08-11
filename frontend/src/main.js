@@ -402,6 +402,7 @@ const loadRsvpSummary = async () => {
 const showFlow = () => {
   setWaiting(false);
   elements.guestSection.hidden = true;
+  elements.rsvpSummary.hidden = true;
   elements.sessionSection.hidden = true;
   elements.sessionIntro.hidden = true;
   elements.flowSection.hidden = false;
@@ -419,6 +420,7 @@ const showFlow = () => {
   elements.passwordLoginInput.hidden = false;
   elements.passwordLoginForm.querySelector('button[type="submit"]').hidden = false;
   elements.passwordLoginStatus.textContent = '';
+  window.requestAnimationFrame(() => elements.flowSection.scrollIntoView({ block: 'start' }));
 };
 
 const showValidatedGuestSelection = () => {
@@ -436,6 +438,7 @@ const showValidatedGuestSelection = () => {
   elements.validatedContent.hidden = false;
   elements.validationReportPanel.hidden = true;
   elements.reportValidationMismatch.hidden = true;
+  loadRsvpSummary();
 };
 
 const showRegistrationWhatsapp = async (result) => {
