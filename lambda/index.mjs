@@ -8,6 +8,7 @@ import {
   QueryCommand,
   ScanCommand,
   TransactWriteCommand,
+  UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { SendMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
