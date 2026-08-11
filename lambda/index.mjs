@@ -780,8 +780,8 @@ export const createHandler = ({
   };
 
   const startWhatsappRsvp = async (event) => {
-    await requireTriviaGate(event);
     const body = parseJsonBody(event);
+    if (body.retry !== true) await requireTriviaGate(event);
     const guest = await getGuest(validGuestId(body.guestId));
     const config = await rsvpConfig();
     const retrieval = body.mode === 'retrieve';
