@@ -16,6 +16,8 @@ const elements = {
   availabilityChart: document.querySelector('#availability-chart'),
   restaurantVotes: document.querySelector('#restaurant-votes'),
   restaurantSummaryHeading: document.querySelector('#restaurant-summary-heading'),
+  includedRestaurants: document.querySelector('#included-restaurants'),
+  whatsappIncludedRestaurants: document.querySelector('#whatsapp-included-restaurants'),
   rsvpSummaryPreferences: document.querySelector('#rsvp-summary-preferences'),
   captcha: document.querySelector('#captcha'),
   captchaStatus: document.querySelector('#captcha-status'),
@@ -267,13 +269,16 @@ const renderRsvpForm = ({ days, restaurantChoices, response }) => {
     elements.availabilityDays.append(label);
   }
   addNoAvailabilityOption(elements.availabilityDays, response?.noAvailability === true);
+  elements.includedRestaurants.textContent = restaurantChoices?.length
+    ? `Já incluídos: ${restaurantChoices.join(', ')}. Não os repitas na sugestão.`
+    : 'Ainda não existem restaurantes incluídos.';
   elements.rsvpForm.elements.proposedRestaurantChoices.value = (response?.proposedRestaurantChoices || []).join('\n');
   for (const radio of elements.rsvpForm.querySelectorAll('input[name="mealPreference"]')) {
     radio.checked = (response?.mealPreference || response?.mealTypes?.[0]) === radio.value;
   }
 };
 
-const renderWhatsappRsvpForm = ({ days }) => {
+const renderWhatsappRsvpForm = ({ days, restaurantChoices }) => {
   elements.whatsappAvailabilityDays.replaceChildren();
   for (const day of days) {
     const label = document.createElement('label');
@@ -283,6 +288,9 @@ const renderWhatsappRsvpForm = ({ days }) => {
     elements.whatsappAvailabilityDays.append(label);
   }
   addNoAvailabilityOption(elements.whatsappAvailabilityDays);
+  elements.whatsappIncludedRestaurants.textContent = restaurantChoices?.length
+    ? `Já incluídos: ${restaurantChoices.join(', ')}. Não os repitas na sugestão.`
+    : 'Ainda não existem restaurantes incluídos.';
 };
 
 const hasMealPreference = (form) => form.querySelector('input[name="mealPreference"]:checked') !== null;
