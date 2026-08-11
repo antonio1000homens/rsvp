@@ -189,7 +189,7 @@ const post = (path, payload = {}) => api(path, { method: 'POST', body: JSON.stri
 const put = (path, payload = {}) => api(path, { method: 'PUT', body: JSON.stringify(payload) });
 const del = (path, payload = {}) => api(path, { method: 'DELETE', body: JSON.stringify(payload) });
 
-const showAuthenticated = (nickname, message = '', passkeyLabel = 'Adicionar outra chave de acesso') => {
+const showAuthenticated = (nickname, message = '', passkeyLabel = 'Criar chave de acesso') => {
   pollGeneration += 1;
   setWaiting(false);
   elements.guestSection.hidden = true;
@@ -208,6 +208,7 @@ const showAuthenticated = (nickname, message = '', passkeyLabel = 'Adicionar out
     if (!session.authenticated) return;
     elements.addPasskey.hidden = Boolean(session.methods?.passkey);
     elements.openPassword.hidden = Boolean(session.methods?.password);
+    elements.addPasskey.textContent = session.methods?.passkey ? 'Adicionar outra chave de acesso' : 'Criar chave de acesso';
   }).catch(() => {
     elements.addPasskey.hidden = false;
     elements.openPassword.hidden = false;
