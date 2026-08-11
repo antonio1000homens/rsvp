@@ -26,6 +26,10 @@ body {
   box-shadow: 0 1.5rem 4rem rgba(62, 42, 25, 0.12);
 }
 
+.round-countdown { display: flex; justify-content: space-between; gap: 1rem; margin-bottom: 1.25rem; padding: .75rem 1rem; border: 1px solid #d49a32; border-radius: .65rem; background: #fff1c7; color: #6b4614; }
+.round-countdown span { font-variant-numeric: tabular-nums; font-weight: 700; white-space: nowrap; }
+@media (max-width: 24rem) { .round-countdown { display: grid; gap: .25rem; } }
+
 .eyebrow {
   margin: 0 0 0.5rem;
   color: #8a5838;

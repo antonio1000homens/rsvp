@@ -54,6 +54,7 @@ const elements = {
   sessionName: document.querySelector('#session-name'),
   sessionStatus: document.querySelector('#session-status'),
   toast: document.querySelector('#toast'),
+  roundCountdown: document.querySelector('#round-countdown-value'),
   restaurantChoices: document.querySelector('#restaurant-choices'),
   adminSection: document.querySelector('#admin-section'),
   adminDates: document.querySelector('#admin-dates'),
@@ -122,6 +123,19 @@ const elements = {
   linkWhatsapp: document.querySelector('#link-whatsapp'),
   linkCancel: document.querySelector('#link-cancel'),
 };
+
+const updateRoundCountdown = () => {
+  const remaining = new Date('2026-08-20T23:59:59+01:00').getTime() - Date.now();
+  if (remaining <= 0) { elements.roundCountdown.textContent = 'Ronda 1 encerrada'; return; }
+  const totalSeconds = Math.floor(remaining / 1000);
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  elements.roundCountdown.textContent = `${days}d ${String(hours).padStart(2, '0')}h ${String(minutes).padStart(2, '0')}m ${String(seconds).padStart(2, '0')}s`;
+};
+updateRoundCountdown();
+window.setInterval(updateRoundCountdown, 1000);
 
 let selectedGuest = null;
 let selectedGroup = '';
