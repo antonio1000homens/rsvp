@@ -923,17 +923,28 @@ export const createHandler = ({
 
   const adminGuests = async (event) => {
     await requireAdmin(event);
-    const result = await ddb.send(new ScanCommand({
+    const [result, pendingResult] = await Promise.all([ddb.send(new ScanCommand({
       TableName: env.RSVP_TABLE,
       FilterExpression: 'sk = :profile AND entityType = :guest AND enabled = :enabled',
       ExpressionAttributeValues: { ':profile': 'PROFILE', ':guest': 'guest', ':enabled': true },
-      ProjectionExpression: 'guestId, nickname, sender, identityStatus',
-    }));
+      ProjectionExpression: 'guestId, nickname, sender, identityStatus, lastRegistrationApprovedAt',
+    })), ddb.send(new ScanCommand({
+      TableName: env.RSVP_TABLE,
+      FilterExpression: 'sk = :pending AND entityType = :pendingType',
+      ExpressionAttributeValues: { ':pending': 'PENDING_REGISTRATION', ':pendingType': 'pendingRegistration' },
+      ProjectionExpression: 'guestId, validationExpiresAt, expiresAt, entityType',
+    }))]);
+    const pendingByGuest = new Map((pendingResult.Items || [])
+      .filter((item) => item.entityType === 'pendingRegistration' && item.expiresAt >= now())
+      .map((item) => [item.guestId, item]));
     const guests = (result.Items || []).map((guest) => ({
       id: guest.guestId,
       nickname: String(guest.nickname || '').replace(/ — Por confirmar$/, ''),
       sender: String(guest.sender || ''),
       identityStatus: guest.identityStatus || 'unconfirmed',
+      lastRegistrationApprovedAt: guest.lastRegistrationApprovedAt || null,
+      pendingRegistration: pendingByGuest.has(guest.guestId),
+      validationExpiresAt: pendingByGuest.get(guest.guestId)?.validationExpiresAt || null,
     })).sort((left, right) => left.nickname.localeCompare(right.nickname));
     return jsonResponse(200, { guests });
   };

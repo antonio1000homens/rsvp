@@ -199,6 +199,8 @@
             <p class="fine-print">O nome público aparece na página. O nome do remetente tem de corresponder ao nome guardado nos contactos WhatsApp do Tasker.</p>
             <button type="submit">Guardar nomes</button>
             <p id="admin-guest-status" class="status" role="status" aria-live="polite"></p>
+            <p id="admin-registration-status" class="status" role="status" aria-live="polite"></p>
+            <button id="admin-refresh-guest-status" type="button" class="secondary">Atualizar estado de validação</button>
           </form>
           <div class="rsvp-form">
             <h3>Link para repetir a votação</h3>
@@ -207,6 +209,8 @@
             <label for="admin-guest-access-link-value" hidden>Link seguro</label>
             <input id="admin-guest-access-link-value" type="url" readonly hidden>
             <button id="admin-copy-guest-access-link" type="button" hidden>Copiar link</button>
+            <a id="admin-share-guest-access-link" class="button secondary" target="_blank" rel="noopener" hidden>Enviar pelo WhatsApp</a>
+            <canvas id="admin-guest-access-link-qr" hidden></canvas>
           </div>
           <div class="rsvp-form">
             <h3>Recuperar validação WhatsApp pendente</h3>
@@ -215,6 +219,8 @@
             <label for="admin-reissue-registration-value" hidden>Link de validação WhatsApp</label>
             <input id="admin-reissue-registration-value" type="url" readonly hidden>
             <button id="admin-copy-reissue-registration" type="button" hidden>Copiar link</button>
+            <a id="admin-share-reissue-registration" class="button secondary" target="_blank" rel="noopener" hidden>Enviar pelo WhatsApp</a>
+            <canvas id="admin-reissue-registration-qr" hidden></canvas>
           </div>
           <form id="admin-add-guest-form" class="rsvp-form">
             <h3>Adicionar convidado</h3>
