@@ -244,6 +244,7 @@ const responseChoices = (body, days) => {
   const availableDays = Array.isArray(body.availableDays) ? [...new Set(body.availableDays.map(String))] : [];
   const noAvailability = body.noAvailability === true || body.noAvailability === 'true' || body.noAvailability === 'on';
   const mealTypes = Array.isArray(body.mealTypes) ? [...new Set(body.mealTypes.map(String))] : [];
+  const mealPreference = String(body.mealPreference || (mealTypes.length === 1 ? mealTypes[0] : mealTypes.length ? 'any' : ''));
   const guestCount = Number(body.guestCount);
   const preferenceType = String(body.preferenceType || body.attendanceType || 'families');
   const dietaryRestrictions = String(body.dietaryRestrictions || '').trim();
@@ -256,11 +257,11 @@ const responseChoices = (body, days) => {
     .map((choice) => String(choice).trim().replace(/\s+/g, ' '))
     .filter(Boolean))];
   if (availableDays.some((day) => !days.includes(day)) || (!availableDays.length && !noAvailability)) throw new ApiError(400, 'invalid_availability');
-  if (!mealTypes.length || !mealTypes.every((type) => ['lunch', 'dinner', 'drinks'].includes(type))) throw new ApiError(400, 'invalid_meal_types');
+  if (!['lunch', 'dinner', 'drinks', 'any'].includes(mealPreference)) throw new ApiError(400, 'invalid_meal_preference');
   if (!Number.isInteger(guestCount) || guestCount < 1 || guestCount > 12) throw new ApiError(400, 'invalid_guest_count');
   if (!['adults', 'plusOnes', 'families'].includes(preferenceType)) throw new ApiError(400, 'invalid_preference_type');
-  if (dietaryRestrictions.length > 500 || (!restaurantChoices.length && !proposedRestaurantChoices.length) || restaurantChoices.length > 20 || proposedRestaurantChoices.length > 5 || [...restaurantChoices, ...proposedRestaurantChoices].some((choice) => choice.length < 2 || choice.length > 120)) throw new ApiError(400, 'invalid_preferences');
-  return { availableDays, noAvailability, mealTypes, guestCount, preferenceType, dietaryRestrictions, restaurantChoices, proposedRestaurantChoices };
+  if (dietaryRestrictions.length > 500 || restaurantChoices.length > 20 || proposedRestaurantChoices.length > 5 || [...restaurantChoices, ...proposedRestaurantChoices].some((choice) => choice.length < 2 || choice.length > 120)) throw new ApiError(400, 'invalid_preferences');
+  return { availableDays, noAvailability, mealTypes: mealPreference === 'any' ? ['any'] : [mealPreference], mealPreference, guestCount, preferenceType, dietaryRestrictions, restaurantChoices, proposedRestaurantChoices };
 };
 
 const storedRestaurantChoices = (response) => {
@@ -689,7 +690,7 @@ export const createHandler = ({
     const guest = await authorizedRegistrationGuest(event);
     const response = await rsvpForGuest(guest.guestId);
     return jsonResponse(200, { ...(await rsvpConfig()), response: response ? {
-      availableDays: response.availableDays, noAvailability: response.noAvailability === true, mealTypes: response.mealTypes, guestCount: response.guestCount,
+      availableDays: response.availableDays, noAvailability: response.noAvailability === true, mealTypes: response.mealTypes, mealPreference: response.mealPreference, guestCount: response.guestCount,
       preferenceType: response.preferenceType || (response.attendanceType === 'adults' ? 'adults' : 'families'), dietaryRestrictions: response.dietaryRestrictions, restaurantChoices: storedRestaurantChoices(response),
       proposedRestaurantChoices: storedProposedRestaurantChoices(response),
     } : null });
@@ -826,7 +827,7 @@ export const createHandler = ({
       TableName: env.RSVP_TABLE,
       FilterExpression: 'entityType = :response',
       ExpressionAttributeValues: { ':response': 'rsvpResponse' },
-      ProjectionExpression: 'guestId, availableDays, mealTypes, guestCount, restaurantChoices, restaurantChoice',
+      ProjectionExpression: 'guestId, availableDays, mealTypes, mealPreference, guestCount, restaurantChoices, restaurantChoice',
     }));
     const responses = result.Items || [];
     const profilesResult = await ddb.send(new ScanCommand({
@@ -845,7 +846,7 @@ export const createHandler = ({
       }
     }
     const byDay = Object.fromEntries(days.map((day) => [day, 0]));
-    const byMeal = { lunch: 0, dinner: 0, drinks: 0 };
+    const byMeal = { lunch: 0, dinner: 0, drinks: 0, any: 0 };
     const dayVoters = Object.fromEntries(days.map((day) => [day, []]));
     const mealVoters = Object.fromEntries(Object.keys(byMeal).map((meal) => [meal, []]));
     const restaurantNames = [...configuredRestaurants];
@@ -863,7 +864,7 @@ export const createHandler = ({
         byDay[day] += guestCount;
         if (nickname && !dayVoters[day].some((voter) => voter.nickname === nickname)) dayVoters[day].push({ nickname, guestCount });
       }
-      for (const meal of response.mealTypes || []) if (meal in byMeal) {
+      for (const meal of response.mealPreference ? [response.mealPreference] : response.mealTypes || []) if (meal in byMeal) {
         byMeal[meal] += guestCount;
         if (nickname && !mealVoters[meal].some((voter) => voter.nickname === nickname)) mealVoters[meal].push({ nickname, guestCount });
       }

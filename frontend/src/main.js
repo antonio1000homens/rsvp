@@ -15,6 +15,7 @@ const elements = {
   rsvpSummaryTotal: document.querySelector('#rsvp-summary-total'),
   availabilityChart: document.querySelector('#availability-chart'),
   restaurantVotes: document.querySelector('#restaurant-votes'),
+  restaurantSummaryHeading: document.querySelector('#restaurant-summary-heading'),
   rsvpSummaryPreferences: document.querySelector('#rsvp-summary-preferences'),
   captcha: document.querySelector('#captcha'),
   captchaStatus: document.querySelector('#captcha-status'),
@@ -266,17 +267,13 @@ const renderRsvpForm = ({ days, restaurantChoices, response }) => {
     elements.availabilityDays.append(label);
   }
   addNoAvailabilityOption(elements.availabilityDays, response?.noAvailability === true);
-  elements.rsvpForm.elements.guestCount.value = response?.guestCount || '';
-  elements.rsvpForm.elements.preferenceType.value = response?.preferenceType || 'families';
-  renderRestaurantChoices(elements.restaurantChoices, restaurantChoices || [], response?.restaurantChoices || []);
   elements.rsvpForm.elements.proposedRestaurantChoices.value = (response?.proposedRestaurantChoices || []).join('\n');
-  elements.rsvpForm.elements.dietaryRestrictions.value = response?.dietaryRestrictions || '';
-  for (const checkbox of elements.rsvpForm.querySelectorAll('input[name="mealTypes"]')) {
-    checkbox.checked = response?.mealTypes?.includes(checkbox.value) || false;
+  for (const radio of elements.rsvpForm.querySelectorAll('input[name="mealPreference"]')) {
+    radio.checked = (response?.mealPreference || response?.mealTypes?.[0]) === radio.value;
   }
 };
 
-const renderWhatsappRsvpForm = ({ days, restaurantChoices }) => {
+const renderWhatsappRsvpForm = ({ days }) => {
   elements.whatsappAvailabilityDays.replaceChildren();
   for (const day of days) {
     const label = document.createElement('label');
@@ -286,10 +283,9 @@ const renderWhatsappRsvpForm = ({ days, restaurantChoices }) => {
     elements.whatsappAvailabilityDays.append(label);
   }
   addNoAvailabilityOption(elements.whatsappAvailabilityDays);
-  renderRestaurantChoices(elements.whatsappRestaurantChoices, restaurantChoices);
 };
 
-const hasMealType = (form) => form.querySelector('input[name="mealTypes"]:checked') !== null;
+const hasMealPreference = (form) => form.querySelector('input[name="mealPreference"]:checked') !== null;
 
 const openWhatsappRsvpForm = (config) => {
   renderWhatsappRsvpForm(config);
@@ -413,6 +409,7 @@ const loadRsvpSummary = async () => {
     const restaurantNames = summary.restaurantChoices?.length ? summary.restaurantChoices : Object.keys(restaurantCounts);
     const maximumRestaurant = Math.max(1, ...restaurantNames.map((name) => restaurantCounts[name] || 0));
     elements.restaurantVotes.replaceChildren();
+    elements.restaurantSummaryHeading.hidden = restaurantNames.length === 0;
     for (const name of restaurantNames) {
       const row = document.createElement('div');
       row.className = 'availability-row';
@@ -426,7 +423,7 @@ const loadRsvpSummary = async () => {
       elements.restaurantVotes.append(voterNames);
     }
     elements.rsvpSummaryTotal.textContent = `${summary.guests} pessoa(s) em ${summary.responses} resposta(s).`;
-    const mealLabels = { lunch: 'Almoço', dinner: 'Jantar', drinks: 'Copos' };
+    const mealLabels = { lunch: 'Almoço', dinner: 'Jantar', drinks: 'Só copos', any: 'Qualquer uma das opções' };
     const meals = Object.entries(summary.byMeal).filter(([, count]) => count).map(([meal, count]) => {
       const voters = (summary.mealVoters || {})[meal] || [];
       const names = voters.map(({ nickname, guestCount }) => guestCount > 1 ? `${nickname} (${guestCount})` : nickname).join(', ') || 'sem nomes';
@@ -903,20 +900,19 @@ elements.guestSearch.addEventListener('input', () => {
 });
 elements.rsvpForm.addEventListener('submit', async (event) => {
   event.preventDefault();
-  if (!hasMealType(elements.rsvpForm)) {
-    showToast('Seleciona pelo menos uma preferência: almoço, jantar ou copos.');
+  if (!hasMealPreference(elements.rsvpForm)) {
+    showToast('Seleciona uma preferência.');
     return;
   }
   const form = new FormData(elements.rsvpForm);
   const payload = {
     availableDays: form.getAll('availableDays'),
     noAvailability: form.get('noAvailability') === 'true',
-    guestCount: Number(form.get('guestCount')),
-    mealTypes: form.getAll('mealTypes'),
-    restaurantChoices: form.getAll('restaurantChoices'),
+    guestCount: 1,
+    mealPreference: form.get('mealPreference'),
     proposedRestaurantChoices: form.get('proposedRestaurantChoices').split(/\r?\n/).map((choice) => choice.trim()).filter(Boolean),
-    preferenceType: form.get('preferenceType'),
-    dietaryRestrictions: form.get('dietaryRestrictions'),
+    preferenceType: 'families',
+    dietaryRestrictions: '',
   };
   elements.sessionStatus.textContent = 'A guardar…';
   try {
@@ -927,17 +923,17 @@ elements.rsvpForm.addEventListener('submit', async (event) => {
 });
 elements.whatsappRsvpForm.addEventListener('submit', async (event) => {
   event.preventDefault();
-  if (!hasMealType(elements.whatsappRsvpForm)) {
-    showToast('Seleciona pelo menos uma preferência: almoço, jantar ou copos.');
+  if (!hasMealPreference(elements.whatsappRsvpForm)) {
+    showToast('Seleciona uma preferência.');
     return;
   }
   const form = new FormData(elements.whatsappRsvpForm);
   const payload = {
-    availableDays: form.getAll('availableDays'), guestCount: Number(form.get('guestCount')),
+    availableDays: form.getAll('availableDays'), guestCount: 1,
     noAvailability: form.get('noAvailability') === 'true',
-    mealTypes: form.getAll('mealTypes'), restaurantChoices: form.getAll('restaurantChoices'), preferenceType: form.get('preferenceType'),
+    mealPreference: form.get('mealPreference'), preferenceType: 'families',
     proposedRestaurantChoices: form.get('proposedRestaurantChoices').split(/\r?\n/).map((choice) => choice.trim()).filter(Boolean),
-    dietaryRestrictions: form.get('dietaryRestrictions'),
+    dietaryRestrictions: '',
   };
   try {
     await showRegistrationWhatsapp(await post('/api/rsvp/whatsapp/start', { guestId: selectedGuest.id, ...payload }));
