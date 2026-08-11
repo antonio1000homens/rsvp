@@ -569,7 +569,11 @@ export const createHandler = ({
 
   const listGuests = async (groupId = '', query = '') => {
     let search;
-    try { search = normalizeContactName(query); } catch { throw new ApiError(400, 'invalid_guest_search'); }
+    if (String(query).trim()) {
+      try { search = normalizeContactName(query); } catch { throw new ApiError(400, 'invalid_guest_search'); }
+    } else {
+      search = { lookup: '' };
+    }
     let profiles;
     if (groupId) {
       await getGroup(validGroupId(groupId));

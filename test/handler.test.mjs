@@ -288,15 +288,16 @@ test('public guest directory returns nicknames and IDs but no private profile da
   assert.doesNotMatch(serialized, /351911111111|contact-pepper/);
 });
 
-test('guest search requires a query and caps public matches at ten', async () => {
+test('guest search lists all gated guests when empty and caps filtered matches at ten', async () => {
   const profiles = Array.from({ length: 12 }, (_, index) => guest({
     guestId: `123e4567-e89b-42d3-a456-4266141740${String(index).padStart(2, '0')}`,
     pk: `GUEST#123e4567-e89b-42d3-a456-4266141740${String(index).padStart(2, '0')}`,
     nickname: `Guest ${index}`,
   }));
   const { handler } = makeHandler({ items: profiles });
-  const missing = await handler(request('/api/guests'));
-  assert.equal(missing.statusCode, 400);
+  const all = await handler(request('/api/guests'));
+  assert.equal(all.statusCode, 200);
+  assert.equal(JSON.parse(all.body).guests.length, 10);
   const response = await handler({ ...request('/api/guests'), rawQueryString: 'q=guest' });
   assert.equal(response.statusCode, 200);
   assert.equal(JSON.parse(response.body).guests.length, 10);
