@@ -336,6 +336,27 @@ test('an authenticated guest can save RSVP choices and the trivia-gated summary 
   assert.doesNotMatch(serialized, /Vegetariano/);
 });
 
+test('an admin-issued guest link bypasses trivia only until credentials are configured', async () => {
+  const profile = guest({ isAdmin: true });
+  const { handler, ddb } = makeHandler({ items: [profile] });
+  const adminSession = signToken({ type: 'session', guestId: profile.guestId, sessionVersion: 1, exp: fixedNow + 600 }, values['/rsvp/session-secret']);
+  const created = await handler(request('/api/admin/guests/access-link', { method: 'POST', cookies: [`rsvp_session=${adminSession}`], body: { guestId: profile.guestId } }));
+  assert.equal(created.statusCode, 200);
+  const token = new URL(JSON.parse(created.body).link).searchParams.get('access');
+  const firstUse = await handler(request('/api/access-link/consume', { method: 'POST', cookies: [], body: { token } }));
+  assert.equal(JSON.parse(firstUse.body).mode, 'session');
+  assert.ok(firstUse.cookies?.some((cookie) => cookie.startsWith('rsvp_session=')));
+
+  const password = { pk: `GUEST#${profile.guestId}`, sk: 'PASSWORD', entityType: 'passwordCredential', passwordHash: 'not-a-valid-password-hash' };
+  ddb.items.set(keyOf(password), password);
+  const protectedUse = await handler(request('/api/access-link/consume', { method: 'POST', cookies: [], body: { token } }));
+  assert.equal(JSON.parse(protectedUse.body).mode, 'credentials');
+  const accessCookie = cookieFrom(protectedUse, 'rsvp_access_link');
+  const started = await handler(request('/api/auth/start', { method: 'POST', cookies: [accessCookie], body: { guestId: profile.guestId } }));
+  assert.equal(started.statusCode, 200);
+  assert.equal(JSON.parse(started.body).mode, 'password');
+});
+
 test('the phone webhook queues the Tasker payload for asynchronous validation', async () => {
   const profile = guest({ sender: 'António Costa', identityStatus: 'confirmed' });
   const { handler, queued } = makeHandler({ items: [profile] });

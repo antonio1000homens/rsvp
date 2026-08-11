@@ -199,6 +199,14 @@
             <button type="submit">Guardar nomes</button>
             <p id="admin-guest-status" class="status" role="status" aria-live="polite"></p>
           </form>
+          <div class="rsvp-form">
+            <h3>Link para repetir a votação</h3>
+            <p class="fine-print">Gera um novo link individual para o convidado selecionado. O link anterior deixa de funcionar e este expira em 30 dias.</p>
+            <button id="admin-guest-access-link" type="button">Gerar link seguro</button>
+            <label for="admin-guest-access-link-value" hidden>Link seguro</label>
+            <input id="admin-guest-access-link-value" type="url" readonly hidden>
+            <button id="admin-copy-guest-access-link" type="button" hidden>Copiar link</button>
+          </div>
           <form id="admin-add-guest-form" class="rsvp-form">
             <h3>Adicionar convidado</h3>
             <label for="admin-new-guest-nickname">Nome público</label>

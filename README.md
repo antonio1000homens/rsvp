@@ -137,6 +137,8 @@ AWS_PROFILE=windsor npm run guest:grant-admin
 
 The administrator can view the fixed event dates, add or remove restaurant proposals (one per line), configure the trivia questions and accepted answers, and see group membership totals. New restaurant proposals automatically appear as checkboxes in both registration forms. Trivia is disabled by default, so an administrator can sign in and configure it in the browser. Enter one question per line as `Question | accepted answer, alternative answer`; creating the first question enables trivia automatically. It can later be disabled with the “Usar perguntas de validação” setting. Group creation and membership assignment remain host commands (`group:add` and `group:add-member`) so a public browser session cannot alter invitations.
 
+The guest editor can generate a secure, 30-day voting link for the selected guest. Copy and resend it through the host's chosen channel; generating another link immediately revokes the prior link. A guest with no password or passkey gets a session directly from the link and can edit the RSVP and create credentials. Once either credential exists, the same link can only start that guest's password/passkey flow; it cannot sign them in by itself and does not require CAPTCHA or trivia.
+
 Disabling removes the nickname from the public directory, revokes existing sessions, and retains passkeys so that the guest can be re-enabled later. Keep any private mapping of nicknames to phone numbers outside this public repository.
 
 Friends who are not yet listed should first join the WhatsApp group. The host can then add them to the phone contacts and seed a record with both names. Once seeded, the nickname appears in the public list as an unconfirmed guest.

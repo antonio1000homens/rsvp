@@ -47,6 +47,11 @@ Parameters:
   GeminiApiKeyParameter:
     Type: String
     Default: /rsvp/gemini-api-key
+  WhatsappVerificationRequired:
+    Type: String
+    Default: 'true'
+    AllowedValues: ['true', 'false']
+    Description: Set false only while the WhatsApp verification service is unavailable.
   WebauthnRpId:
     Type: String
     Default: calcada2026.pt
@@ -127,7 +132,7 @@ Resources:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: !Sub /aws/lambda/${FunctionName}
-      RetentionInDays: 7
+      RetentionInDays: 30
       Tags:
         - Key: Application
           Value: rsvp
@@ -297,6 +302,7 @@ Resources:
           RSVP_DAYS: !Join [',', !Ref AvailabilityDays]
           PHONE_QUEUE_URL: !Ref PhoneRegistrationQueue
           SUMMARY_QUEUE_URL: !Ref SummaryQueue
+          WHATSAPP_VERIFICATION_REQUIRED: !Ref WhatsappVerificationRequired
       Tags:
         - Key: Application
           Value: rsvp
@@ -307,7 +313,7 @@ Resources:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: !Sub /aws/lambda/${PhoneProcessorFunctionName}
-      RetentionInDays: 7
+      RetentionInDays: 30
 
   PhoneProcessorRole:
     Type: AWS::IAM::Role

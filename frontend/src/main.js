@@ -64,6 +64,9 @@ const elements = {
   adminGuestNickname: document.querySelector('#admin-guest-nickname'),
   adminGuestSender: document.querySelector('#admin-guest-sender'),
   adminGuestStatus: document.querySelector('#admin-guest-status'),
+  adminGuestAccessLink: document.querySelector('#admin-guest-access-link'),
+  adminGuestAccessLinkValue: document.querySelector('#admin-guest-access-link-value'),
+  adminCopyGuestAccessLink: document.querySelector('#admin-copy-guest-access-link'),
   adminAddGuestForm: document.querySelector('#admin-add-guest-form'),
   adminNewGuestNickname: document.querySelector('#admin-new-guest-nickname'),
   adminNewGuestSender: document.querySelector('#admin-new-guest-sender'),
@@ -388,6 +391,10 @@ const showValidatedGuestSelection = () => {
 };
 
 const showRegistrationWhatsapp = async (result) => {
+  if (result.mode === 'bypass') {
+    showAuthenticated(selectedGuest?.nickname || 'Registo', 'Disponibilidade guardada. A verificação WhatsApp está temporariamente desativada.');
+    return;
+  }
   const generation = ++pollGeneration;
   elements.guestSection.hidden = true;
   elements.flowSection.hidden = false;
@@ -566,6 +573,16 @@ const selectGuest = async (guest) => {
   } catch (error) {
     elements.status.textContent = readableError(error);
   }
+};
+
+const consumeAccessLink = async (token) => {
+  const result = await post('/api/access-link/consume', { token });
+  selectedGuest = result.guest;
+  if (result.mode === 'session') {
+    showAuthenticated(result.guest.nickname, 'Podes rever e alterar a tua resposta. Cria uma palavra-passe ou chave de acesso para protegeres este link.');
+    return;
+  }
+  await selectGuest(result.guest);
 };
 
 const loadGuests = async (turnstileToken = '', query = elements.guestSearch.value.trim()) => {
@@ -834,6 +851,25 @@ elements.adminGuestSelect.addEventListener('change', () => {
   if (!guest) return;
   elements.adminGuestNickname.value = guest.nickname;
   elements.adminGuestSender.value = guest.sender;
+  elements.adminGuestAccessLinkValue.hidden = true;
+  elements.adminCopyGuestAccessLink.hidden = true;
+});
+elements.adminGuestAccessLink.addEventListener('click', async () => {
+  const guestId = elements.adminGuestSelect.value;
+  if (!guestId) return;
+  elements.adminGuestAccessLink.disabled = true;
+  try {
+    const result = await post('/api/admin/guests/access-link', { guestId });
+    elements.adminGuestAccessLinkValue.value = result.link;
+    elements.adminGuestAccessLinkValue.hidden = false;
+    elements.adminCopyGuestAccessLink.hidden = false;
+    showToast('Link seguro criado. O link anterior foi revogado.');
+  } catch (error) { elements.adminGuestStatus.textContent = readableError(error); }
+  finally { elements.adminGuestAccessLink.disabled = false; }
+});
+elements.adminCopyGuestAccessLink.addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText(elements.adminGuestAccessLinkValue.value); showToast('Link copiado.'); }
+  catch { elements.adminGuestAccessLinkValue.select(); document.execCommand('copy'); showToast('Link selecionado para copiar.'); }
 });
 elements.adminGuestForm.addEventListener('submit', async (event) => {
   event.preventDefault();
@@ -920,6 +956,16 @@ elements.passwordRemove.addEventListener('click', async () => {
 });
 
 const initialize = async () => {
+  const accessToken = new URLSearchParams(window.location.search).get('access');
+  if (accessToken) {
+    window.history.replaceState({}, '', `${window.location.pathname}${window.location.hash}`);
+    try {
+      await consumeAccessLink(accessToken);
+      return;
+    } catch {
+      elements.captchaStatus.textContent = 'Este link é inválido ou expirou. Pede um novo link ao Antonio.';
+    }
+  }
   try {
     const session = await api('/api/session');
     if (session.authenticated) {

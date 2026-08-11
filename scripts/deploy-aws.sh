@@ -83,6 +83,12 @@ fi
 function_code_key="rsvp/${deploy_id}/lambda.zip"
 aws_cli s3 cp "${TEMP_DIR}/lambda.zip" "s3://${CODE_BUCKET}/${function_code_key}" --only-show-errors
 
+whatsapp_verification_required="${WHATSAPP_VERIFICATION_REQUIRED:-}"
+if [ -z "${whatsapp_verification_required}" ]; then
+  whatsapp_verification_required="$(aws_cli cloudformation describe-stacks --stack-name "${STACK_NAME}" --query "Stacks[0].Parameters[?ParameterKey=='WhatsappVerificationRequired'].ParameterValue | [0]" --output text 2>/dev/null || true)"
+fi
+[ "${whatsapp_verification_required}" = 'true' ] || [ "${whatsapp_verification_required}" = 'false' ] || whatsapp_verification_required='true'
+
 aws_cli cloudformation validate-template --template-body "file://${TEMPLATE_FILE}" >/dev/null
 aws_cli cloudformation deploy \
   --stack-name "${STACK_NAME}" \
@@ -93,6 +99,7 @@ aws_cli cloudformation deploy \
   --parameter-overrides \
     CodeBucket="${CODE_BUCKET}" \
     FunctionCodeKey="${function_code_key}" \
+    WhatsappVerificationRequired="${whatsapp_verification_required}" \
     AvailabilityDays="${AVAILABILITY_DAYS:-19 December 2026,20 December 2026,21 December 2026,22 December 2026,23 December 2026}" \
     SiteBucketName="$(aws_cli cloudformation describe-stacks --stack-name "${STACK_NAME}" --query "Stacks[0].Parameters[?ParameterKey=='SiteBucketName'].ParameterValue | [0]" --output text 2>/dev/null || echo "rsvp-$(aws_cli sts get-caller-identity --query Account --output text)-${REGION}-site")"
 

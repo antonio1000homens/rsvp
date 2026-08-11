@@ -28,7 +28,8 @@ export const handler = async (event = {}) => {
       if (activity.length && process.env.SUMMARY_QUEUE_URL) {
         await sqs.send(new SendMessageCommand({ QueueUrl: process.env.SUMMARY_QUEUE_URL, MessageBody: JSON.stringify({ activity: { type: 'registration', nickname: activity[0].nickname } }) }));
       }
-    } catch {
+    } catch (error) {
+      console.error(JSON.stringify({ event: 'phone_registration_processing_failed', error: error?.name || 'unknown_error', message: error?.message || 'unknown_error' }));
       if (record.messageId) batchItemFailures.push({ itemIdentifier: record.messageId });
       else throw new Error('sqs_record_missing_message_id');
     }

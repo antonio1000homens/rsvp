@@ -24,7 +24,7 @@ export const processPhoneRegistration = async ({ sender, message, ddb, tableName
   if (!safeEqual(signature, expectedSignature)) {
     let contactName = '';
     try { contactName = decodeURIComponent(encodedContact); } catch { /* keep it empty */ }
-    logValidation({ sender, contactName, outcome: 'invalid_validation_signature' });
+    logValidation({ sender, contactName, outcome: 'invalid_validation_signature', wouldStoreResponse: false, storedResponse: false });
     return 'invalid_validation_signature';
   }
   let decodedSender;
@@ -33,7 +33,7 @@ export const processPhoneRegistration = async ({ sender, message, ddb, tableName
   const key = { pk: `REGISTRATION#${tokenHash(nonce)}`, sk: 'CHALLENGE' };
   const challenge = (await ddb.send(new GetCommand({ TableName: tableName, Key: key, ConsistentRead: true }))).Item;
   if (!challenge || challenge.status !== 'pending' || challenge.expiresAt < now) {
-    logValidation({ sender, contactName: decodedSender.display, outcome: 'registration_challenge_unavailable' });
+    logValidation({ sender, contactName: decodedSender.display, outcome: 'registration_challenge_unavailable', wouldStoreResponse: false, storedResponse: false });
     return 'registration_challenge_unavailable';
   }
   const selectedGuest = (await ddb.send(new GetCommand({
@@ -50,11 +50,11 @@ export const processPhoneRegistration = async ({ sender, message, ddb, tableName
         ExpressionAttributeValues: { ':error': 'sender_mismatch', ':pending': 'pending', ':now': now },
       }));
     } catch (error) { if (!conditionalFailure(error)) throw error; }
-    logValidation({ sender, contactName: decodedSender.display, nickname, expectedSender: challenge.sender, outcome: 'sender_mismatch' });
+    logValidation({ sender, contactName: decodedSender.display, nickname, expectedSender: challenge.sender, outcome: 'sender_mismatch', wouldStoreResponse: Boolean(challenge.response), storedResponse: false });
     return 'sender_mismatch';
   }
   if (!selectedGuest) {
-    logValidation({ sender, contactName: decodedSender.display, nickname, outcome: 'registration_unavailable' });
+    logValidation({ sender, contactName: decodedSender.display, nickname, outcome: 'registration_unavailable', wouldStoreResponse: Boolean(challenge.response), storedResponse: false });
     return 'registration_unavailable';
   }
   try {
@@ -66,12 +66,12 @@ export const processPhoneRegistration = async ({ sender, message, ddb, tableName
     ] }));
   } catch (error) {
     if (conditionalFailure(error)) {
-      logValidation({ sender, contactName: decodedSender.display, nickname, outcome: 'registration_unavailable' });
+      logValidation({ sender, contactName: decodedSender.display, nickname, outcome: 'registration_unavailable', wouldStoreResponse: Boolean(challenge.response), storedResponse: false });
       return 'registration_unavailable';
     }
     throw error;
   }
-  logValidation({ sender, contactName: decodedSender.display, nickname, expectedSender: challenge.sender, outcome: 'created' });
+  logValidation({ sender, contactName: decodedSender.display, nickname, expectedSender: challenge.sender, outcome: 'created', wouldStoreResponse: Boolean(challenge.response), storedResponse: Boolean(challenge.response) });
   if (onConfirmedRegistration) await onConfirmedRegistration({ nickname: String(selectedGuest.nickname || '').replace(/ — Por confirmar$/, '') });
   return 'created';
 };

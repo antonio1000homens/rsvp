@@ -57,6 +57,8 @@ const WHATSAPP_TTL_SECONDS = 5 * 60;
 const WEBAUTHN_TTL_SECONDS = 5 * 60;
 const SESSION_TTL_SECONDS = 24 * 60 * 60;
 const CAPTCHA_TTL_SECONDS = 15 * 60;
+const ACCESS_LINK_TTL_SECONDS = 30 * 24 * 60 * 60;
+const ACCESS_LINK_AUTH_TTL_SECONDS = 10 * 60;
 const VALIDATION_MESSAGE = /^VALIDATION contact=([^&\s]+)&nonce=([A-Za-z0-9_-]{43})&sig=([A-Za-z0-9_-]{43})$/;
 const GUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const GROUP_ID = /^[a-z0-9][a-z0-9-]{0,62}$/;
@@ -476,6 +478,18 @@ export const createHandler = ({
     }
   };
 
+  const accessLinkGuest = async (event) => {
+    const token = await readSignedCookie(event, 'rsvp_access_link');
+    if (token?.type !== 'guest-access-link' || !GUEST_ID.test(String(token.guestId || ''))) return null;
+    return getGuest(token.guestId).catch(() => null);
+  };
+
+  const requireGuestEntry = async (event, guestId) => {
+    const linkedGuest = await accessLinkGuest(event);
+    if (linkedGuest?.guestId === guestId) return;
+    await requireTriviaGate(event);
+  };
+
   const createWebauthnFlow = async (guestId, purpose, options) => {
     const nonce = toBase64Url(randomBytes(32));
     const expiresAt = now() + WEBAUTHN_TTL_SECONDS;
@@ -764,6 +778,16 @@ export const createHandler = ({
     const recovery = body.mode === 'recover';
     const response = retrieval || recovery ? null : responseChoices(body, config.days);
     if (response) validateRestaurantChoices(response.restaurantChoices, config.restaurantChoices);
+    if (response && env.WHATSAPP_VERIFICATION_REQUIRED === 'false') {
+      const timestamp = now();
+      await ddb.send(new TransactWriteCommand({ TransactItems: [
+        { Update: { TableName: env.RSVP_TABLE, Key: { pk: `GUEST#${guest.guestId}`, sk: 'PROFILE' }, UpdateExpression: 'SET identityStatus = :confirmed, updatedAt = :now', ConditionExpression: 'enabled = :enabled', ExpressionAttributeValues: { ':confirmed': 'confirmed', ':enabled': true, ':now': timestamp } } },
+        { Put: { TableName: env.RSVP_TABLE, Item: { pk: `RSVP#${guest.guestId}`, sk: 'RESPONSE', entityType: 'rsvpResponse', guestId: guest.guestId, ...response, updatedAt: timestamp } } },
+      ] }));
+      console.info(JSON.stringify({ event: 'rsvp_submission_persisted', nickname: String(guest.nickname || '').replace(/ — Por confirmar$/, ''), response, wouldStoreResponse: true, storedResponse: true, persistence: 'rsvp_response' }));
+      if (env.SUMMARY_QUEUE_URL) await sqs.send(new SendMessageCommand({ QueueUrl: env.SUMMARY_QUEUE_URL, MessageBody: JSON.stringify({ activity: { type: 'rsvp_saved', nickname: String(guest.nickname || '').replace(/ — Por confirmar$/, '') } }) }));
+      return jsonResponse(200, { mode: 'bypass' }, { cookies: [await issueSessionCookie({ ...guest, identityStatus: 'confirmed' })] });
+    }
     const pendingKey = { pk: `GUEST#${guest.guestId}`, sk: 'PENDING_REGISTRATION' };
     const pending = (await ddb.send(new GetCommand({ TableName: env.RSVP_TABLE, Key: pendingKey, ConsistentRead: true }))).Item;
     if (pending?.expiresAt >= now()) throw new ApiError(409, 'registration_already_pending');
@@ -774,6 +798,7 @@ export const createHandler = ({
       { Put: { TableName: env.RSVP_TABLE, Item: { ...pendingKey, entityType: 'pendingRegistration', nonce, expiresAt }, ConditionExpression: 'attribute_not_exists(pk) OR expiresAt < :now', ExpressionAttributeValues: { ':now': now() } } },
       { Put: { TableName: env.RSVP_TABLE, Item: { pk: `REGISTRATION#${tokenHash(nonce)}`, sk: 'CHALLENGE', entityType: 'registrationChallenge', guestId: guest.guestId, sender: sender.display, senderLookup: sender.lookup, ...(response ? { response } : {}), purpose: retrieval ? 'retrieve' : 'register', status: 'pending', expiresAt, createdAt: now() }, ConditionExpression: 'attribute_not_exists(pk)' } },
     ] }));
+    if (response) console.info(JSON.stringify({ event: 'rsvp_submission_staged', nickname: String(guest.nickname || '').replace(/ — Por confirmar$/, ''), response, wouldStoreResponse: true, storedResponse: false, persistence: 'registration_challenge', expiresAt }));
     let appNumber;
     try { appNumber = normalizeE164(await getWhatsappNumber()); } catch { throw new ApiError(503, 'whatsapp_unavailable'); }
     const signedMessage = `contact=${encodeURIComponent(sender.display)}&nonce=${nonce}`;
@@ -910,6 +935,40 @@ export const createHandler = ({
     return jsonResponse(200, { guests });
   };
 
+  const createGuestAccessLink = async (event) => {
+    await requireAdmin(event);
+    const body = parseJsonBody(event);
+    const guest = await getGuest(validGuestId(body.guestId));
+    const token = toBase64Url(nodeRandomBytes(32));
+    const hash = tokenHash(token);
+    const expiresAt = now() + ACCESS_LINK_TTL_SECONDS;
+    await ddb.send(new TransactWriteCommand({ TransactItems: [
+      { Put: { TableName: env.RSVP_TABLE, Item: { pk: `ACCESS_LINK#${hash}`, sk: 'LINK', entityType: 'guestAccessLink', guestId: guest.guestId, tokenHash: hash, expiresAt, createdAt: now() }, ConditionExpression: 'attribute_not_exists(pk)' } },
+      { Put: { TableName: env.RSVP_TABLE, Item: { pk: `GUEST#${guest.guestId}`, sk: 'ACCESS_LINK', entityType: 'guestAccessLinkPointer', tokenHash: hash, expiresAt, createdAt: now() } } },
+    ] }));
+    const siteOrigin = new URL(env.WEBAUTHN_EXPECTED_ORIGIN || 'https://calcada2026.pt').origin;
+    return jsonResponse(200, { link: `${siteOrigin}/?access=${encodeURIComponent(token)}`, expiresAt });
+  };
+
+  const consumeGuestAccessLink = async (event) => {
+    const body = parseJsonBody(event);
+    const token = String(body.token || '');
+    if (!/^[A-Za-z0-9_-]{43}$/.test(token)) throw new ApiError(400, 'invalid_access_link');
+    const hash = tokenHash(token);
+    const link = (await ddb.send(new GetCommand({ TableName: env.RSVP_TABLE, Key: { pk: `ACCESS_LINK#${hash}`, sk: 'LINK' }, ConsistentRead: true }))).Item;
+    if (!link || link.expiresAt < now() || !safeEqual(link.tokenHash, hash)) throw new ApiError(410, 'access_link_expired');
+    const pointer = (await ddb.send(new GetCommand({ TableName: env.RSVP_TABLE, Key: { pk: `GUEST#${link.guestId}`, sk: 'ACCESS_LINK' }, ConsistentRead: true }))).Item;
+    if (!pointer || pointer.expiresAt < now() || !safeEqual(pointer.tokenHash, hash)) throw new ApiError(410, 'access_link_expired');
+    const guest = await getGuest(link.guestId);
+    const [credentials, passwordCredential] = await Promise.all([getCredentials(guest.guestId), getPasswordCredential(guest.guestId)]);
+    if (credentials.length === 0 && !passwordCredential) {
+      return jsonResponse(200, { mode: 'session', guest: { id: guest.guestId, nickname: guest.nickname } }, { cookies: [await issueSessionCookie(guest)] });
+    }
+    return jsonResponse(200, { mode: 'credentials', guest: { id: guest.guestId, nickname: guest.nickname } }, {
+      cookies: [await makeSignedCookie('rsvp_access_link', { type: 'guest-access-link', guestId: guest.guestId }, ACCESS_LINK_AUTH_TTL_SECONDS)],
+    });
+  };
+
   const saveAdminGuest = async (event) => {
     await requireAdmin(event);
     const body = parseJsonBody(event);
@@ -1038,7 +1097,7 @@ export const createHandler = ({
     }));
     const sessionCookie = await issueSessionCookie(guest);
     return jsonResponse(200, { saved: true, passwordConfigured: true, nickname: guest.nickname }, {
-      cookies: [sessionCookie, clearCookie('rsvp_registration'), clearCookie('rsvp_webauthn')],
+      cookies: [sessionCookie, clearCookie('rsvp_access_link'), clearCookie('rsvp_registration'), clearCookie('rsvp_webauthn')],
     });
   };
 
@@ -1049,20 +1108,22 @@ export const createHandler = ({
   };
 
   const passwordLogin = async (event) => {
-    await requireTriviaGate(event);
     const body = parseJsonBody(event);
-    const guest = await getGuest(validGuestId(body.guestId));
+    const guestId = validGuestId(body.guestId);
+    await requireGuestEntry(event, guestId);
+    const guest = await getGuest(guestId);
     const credential = await getPasswordCredential(guest.guestId);
     if (!credential || !verifyPassword(body.password, credential.passwordHash)) throw new ApiError(401, 'password_verification_failed');
     return jsonResponse(200, { authenticated: true, nickname: guest.nickname }, {
-      cookies: [await issueSessionCookie(guest), clearCookie('rsvp_registration'), clearCookie('rsvp_webauthn')],
+      cookies: [await issueSessionCookie(guest), clearCookie('rsvp_access_link'), clearCookie('rsvp_registration'), clearCookie('rsvp_webauthn')],
     });
   };
 
   const authStart = async (event) => {
-    await requireTriviaGate(event);
     const { guestId: requestedGuestId } = parseJsonBody(event);
-    const guest = await getGuest(validGuestId(requestedGuestId));
+    const guestId = validGuestId(requestedGuestId);
+    await requireGuestEntry(event, guestId);
+    const guest = await getGuest(guestId);
     const credentials = await getCredentials(guest.guestId);
     const passwordCredential = await getPasswordCredential(guest.guestId);
     if (credentials.length === 0 && !passwordCredential) {
@@ -1320,7 +1381,7 @@ export const createHandler = ({
       throw error;
     }
     return jsonResponse(200, { authenticated: true, nickname: guest.nickname }, {
-      cookies: [await issueSessionCookie(guest), clearCookie('rsvp_webauthn')],
+      cookies: [await issueSessionCookie(guest), clearCookie('rsvp_access_link'), clearCookie('rsvp_webauthn')],
     });
   };
 
@@ -1379,6 +1440,8 @@ export const createHandler = ({
     if (path === '/api/admin/guests' && method === 'PUT') return saveAdminGuest(event);
     if (path === '/api/admin/guests' && method === 'POST') return addAdminGuest(event);
     if (path === '/api/admin/guests' && method === 'DELETE') return removeAdminGuest(event);
+    if (path === '/api/admin/guests/access-link' && method === 'POST') return createGuestAccessLink(event);
+    if (path === '/api/access-link/consume' && method === 'POST') return consumeGuestAccessLink(event);
     if (path === '/api/auth/start' && method === 'POST') return authStart(event);
     if (path === '/api/auth/password/login' && method === 'POST') return passwordLogin(event);
     if (path === '/api/auth/password' && method === 'POST') return passwordSet(event);
@@ -1392,7 +1455,7 @@ export const createHandler = ({
     if (path === '/api/session' && method === 'GET') return sessionStatus(event);
     if (path === '/api/auth/logout' && method === 'POST') {
       return jsonResponse(200, { authenticated: false }, {
-        cookies: [clearCookie('rsvp_session'), clearCookie('rsvp_bootstrap'), clearCookie('rsvp_registration'), clearCookie('rsvp_webauthn')],
+        cookies: [clearCookie('rsvp_session'), clearCookie('rsvp_bootstrap'), clearCookie('rsvp_access_link'), clearCookie('rsvp_registration'), clearCookie('rsvp_webauthn')],
       });
     }
     throw new ApiError(404, 'not_found');
