@@ -120,6 +120,15 @@ Resources:
                   - sqs:SetQueueAttributes
                   - sqs:TagQueue
                   - sqs:UntagQueue
+                  - sns:CreateTopic
+                  - sns:DeleteTopic
+                  - sns:GetTopicAttributes
+                  - sns:SetTopicAttributes
+                  - sns:Subscribe
+                  - sns:Unsubscribe
+                  - sns:ListSubscriptionsByTopic
+                  - sns:TagResource
+                  - sns:UntagResource
                   - cloudwatch:DeleteAlarms
                   - cloudwatch:DescribeAlarms
                   - cloudwatch:PutMetricAlarm
