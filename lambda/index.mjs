@@ -1076,7 +1076,8 @@ export const createHandler = ({
       ProjectionExpression: 'guestId',
     }))).Items?.find((item) => item.guestId !== guest.guestId);
     if (duplicate) throw new ApiError(409, 'duplicate_guest_nickname');
-    await ddb.send(new PutCommand({ TableName: env.RSVP_TABLE, Item: { ...guest, nickname: nickname.display, nicknameLookup: nickname.lookup, sender: sender.display, senderLookup: sender.lookup, updatedAt: now() } }));
+    const identityStatus = guest.identityStatus === 'to_add' ? 'unconfirmed' : guest.identityStatus;
+    await ddb.send(new PutCommand({ TableName: env.RSVP_TABLE, Item: { ...guest, nickname: nickname.display, nicknameLookup: nickname.lookup, sender: sender.display, senderLookup: sender.lookup, identityStatus, updatedAt: now() } }));
     return jsonResponse(200, { saved: true, guest: { id: guest.guestId, nickname: nickname.display, sender: sender.display, identityStatus: guest.identityStatus || 'unconfirmed' } });
   };
 
