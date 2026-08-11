@@ -57,6 +57,7 @@ const WHATSAPP_TTL_SECONDS = 30 * 60;
 const PENDING_SUBMISSION_TTL_SECONDS = 24 * 60 * 60;
 const WEBAUTHN_TTL_SECONDS = 5 * 60;
 const SESSION_TTL_SECONDS = 24 * 60 * 60;
+const ADMIN_SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
 const CAPTCHA_TTL_SECONDS = 15 * 60;
 const ACCESS_LINK_TTL_SECONDS = 30 * 24 * 60 * 60;
 const ACCESS_LINK_AUTH_TTL_SECONDS = 10 * 60;
@@ -409,7 +410,7 @@ export const createHandler = ({
     type: 'session',
     guestId: guest.guestId,
     sessionVersion: Number(guest.sessionVersion || 1),
-  }, SESSION_TTL_SECONDS);
+  }, guest.isAdmin === true ? ADMIN_SESSION_TTL_SECONDS : SESSION_TTL_SECONDS);
 
   const readCaptchaGate = async (event) => {
     const token = await readSignedCookie(event, 'rsvp_captcha');

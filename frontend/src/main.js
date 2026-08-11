@@ -145,6 +145,13 @@ const api = async (path, options = {}) => {
   });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
+    if (response.status === 401 && ['authentication_required', 'session_expired'].includes(body.error)) {
+      if (!window.__rsvpSessionReloading) {
+        window.__rsvpSessionReloading = true;
+        window.location.reload();
+      }
+      await new Promise(() => {});
+    }
     const error = new Error(body.message || 'O pedido falhou.');
     error.code = body.error;
     error.status = response.status;
@@ -523,6 +530,7 @@ const readableError = (error) => {
   if (error.name === 'NotAllowedError') return 'A utilização da chave de acesso foi cancelada ou expirou.';
   if (error.code === 'whatsapp_unavailable') return 'O início de sessão pelo WhatsApp ainda não está configurado.';
   if (error.code === 'authentication_challenge_expired') return 'Esta tentativa de início de sessão expirou. Tente novamente.';
+  if (error.code === 'authentication_required' || error.code === 'session_expired') return 'A sessão expirou. A iniciar novamente…';
   if (error.code === 'passkey_verification_failed') return 'Não foi possível verificar essa chave de acesso.';
   if (error.code === 'password_verification_failed') return 'Palavra-passe incorreta. Podes recuperar pelo WhatsApp.';
   if (error.code === 'password_confirmation_mismatch') return 'As palavras-passe não coincidem.';
