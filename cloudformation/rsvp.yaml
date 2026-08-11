@@ -331,7 +331,7 @@ Resources:
                 Action: [sqs:ReceiveMessage, sqs:DeleteMessage, sqs:GetQueueAttributes, sqs:ChangeMessageVisibility]
                 Resource: !GetAtt PhoneRegistrationQueue.Arn
               - Effect: Allow
-                Action: [dynamodb:GetItem, dynamodb:PutItem, dynamodb:TransactWriteItems, dynamodb:UpdateItem]
+                Action: [dynamodb:DeleteItem, dynamodb:GetItem, dynamodb:PutItem, dynamodb:TransactWriteItems, dynamodb:UpdateItem]
                 Resource: !GetAtt RsvpTable.Arn
               - Effect: Allow
                 Action: sqs:SendMessage
