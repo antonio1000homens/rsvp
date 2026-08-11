@@ -378,6 +378,7 @@ Resources:
                   - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${ValidationSecretParameter}
                   - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${TurnstileSiteKeyParameter}
                   - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${TurnstileSecretParameter}
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${SlackWebhookParameter}
               - Sid: EnqueuePhoneRegistrations
                 Effect: Allow
                 Action: sqs:SendMessage
@@ -418,6 +419,7 @@ Resources:
           WHATSAPP_NUMBER_PARAMETER: !Ref WhatsappNumberParameter
           PHONE_WEBHOOK_SECRET_PARAMETER: !Ref PhoneWebhookSecretParameter
           VALIDATION_SECRET_PARAMETER: !Ref ValidationSecretParameter
+          SLACK_WEBHOOK_PARAMETER: !Ref SlackWebhookParameter
           TURNSTILE_SITE_KEY_PARAMETER: !Ref TurnstileSiteKeyParameter
           TURNSTILE_SECRET_PARAMETER: !Ref TurnstileSecretParameter
           WEBAUTHN_RP_ID: !Ref WebauthnRpId
@@ -465,7 +467,9 @@ Resources:
                 Resource: !GetAtt SummaryQueue.Arn
               - Effect: Allow
                 Action: ssm:GetParameter
-                Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${ValidationSecretParameter}
+                Resource:
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${ValidationSecretParameter}
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${SlackWebhookParameter}
               - Effect: Allow
                 Action: [logs:CreateLogStream, logs:PutLogEvents]
                 Resource: !GetAtt PhoneProcessorLogGroup.Arn
@@ -489,6 +493,7 @@ Resources:
         Variables:
           RSVP_TABLE: !Ref RsvpTable
           VALIDATION_SECRET_PARAMETER: !Ref ValidationSecretParameter
+          SLACK_WEBHOOK_PARAMETER: !Ref SlackWebhookParameter
           SUMMARY_QUEUE_URL: !Ref SummaryQueue
 
   SummaryProcessorLogGroup:

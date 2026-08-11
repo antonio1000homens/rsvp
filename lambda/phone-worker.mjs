@@ -8,11 +8,20 @@ const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}), { marshallOption
 const ssm = new SSMClient({});
 const sqs = new SQSClient({});
 let validationSecret;
+let slackWebhook;
 
 const secret = async () => {
   if (!validationSecret) validationSecret = (await ssm.send(new GetParameterCommand({ Name: process.env.VALIDATION_SECRET_PARAMETER, WithDecryption: true }))).Parameter?.Value;
   if (!validationSecret) throw new Error('validation_secret_unavailable');
   return validationSecret;
+};
+
+const notifySlack = async (payload) => {
+  try {
+    if (!slackWebhook) slackWebhook = (await ssm.send(new GetParameterCommand({ Name: process.env.SLACK_WEBHOOK_PARAMETER, WithDecryption: true }))).Parameter?.Value;
+    if (!slackWebhook) return;
+    await fetch(slackWebhook, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: `RSVP ${payload.event}`, attachments: [{ color: payload.outcome === 'created' ? '#2eb886' : '#d50200', text: Object.entries(payload).filter(([key]) => key !== 'event').map(([key, value]) => `*${key}:* ${typeof value === 'object' ? JSON.stringify(value) : value}`).join('\n') }] }) });
+  } catch (error) { console.error(JSON.stringify({ event: 'slack_notification_failed', error: error?.message || 'unknown_error' })); }
 };
 
 export const handler = async (event = {}) => {
@@ -26,7 +35,7 @@ export const handler = async (event = {}) => {
       const activity = [];
       const now = Math.floor(Date.now() / 1000);
       const receivedAt = Number.isSafeInteger(payload.receivedAt) ? payload.receivedAt : now;
-      await processPhoneRegistration({ sender: payload.sender, message: payload.message, ddb, tableName: process.env.RSVP_TABLE, validationSecret: await secret(), now, receivedAt, onConfirmedRegistration: (registration) => activity.push(registration) });
+      await processPhoneRegistration({ sender: payload.sender, message: payload.message, ddb, tableName: process.env.RSVP_TABLE, validationSecret: await secret(), now, receivedAt, onConfirmedRegistration: (registration) => activity.push(registration), onValidation: notifySlack });
       if (activity.length && process.env.SUMMARY_QUEUE_URL) {
         await sqs.send(new SendMessageCommand({ QueueUrl: process.env.SUMMARY_QUEUE_URL, MessageBody: JSON.stringify({ activity: { type: 'registration', nickname: activity[0].nickname } }) }));
       }

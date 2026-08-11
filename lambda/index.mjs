@@ -350,6 +350,13 @@ export const createHandler = ({
     }
     return secretPromises.get(cacheKey);
   };
+  const notifySlack = async (payload) => {
+    try {
+      const webhook = await getParameter(env.SLACK_WEBHOOK_PARAMETER);
+      if (!webhook) return;
+      await fetch(webhook, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: `RSVP ${payload.event}`, attachments: [{ color: '#2eb886', text: Object.entries(payload).filter(([key]) => key !== 'event').map(([key, value]) => `*${key}:* ${typeof value === 'object' ? JSON.stringify(value) : value}`).join('\n') }] }) });
+    } catch (error) { console.error(JSON.stringify({ event: 'slack_notification_failed', error: error?.message || 'unknown_error' })); }
+  };
 
   const getOriginSecret = () => getParameter(env.ORIGIN_SECRET_PARAMETER);
   const getSessionSecret = () => getParameter(env.SESSION_SECRET_PARAMETER);
@@ -798,7 +805,9 @@ export const createHandler = ({
         { Update: { TableName: env.RSVP_TABLE, Key: { pk: `GUEST#${guest.guestId}`, sk: 'PROFILE' }, UpdateExpression: 'SET identityStatus = :confirmed, updatedAt = :now', ConditionExpression: 'enabled = :enabled', ExpressionAttributeValues: { ':confirmed': 'confirmed', ':enabled': true, ':now': timestamp } } },
         { Put: { TableName: env.RSVP_TABLE, Item: { pk: `RSVP#${guest.guestId}`, sk: 'RESPONSE', entityType: 'rsvpResponse', guestId: guest.guestId, ...response, updatedAt: timestamp } } },
       ] }));
-      console.info(JSON.stringify({ event: 'rsvp_submission_persisted', nickname: String(guest.nickname || '').replace(/ — Por confirmar$/, ''), response, wouldStoreResponse: true, storedResponse: true, persistence: 'rsvp_response' }));
+      const notification = { event: 'rsvp_submission_persisted', guestId: guest.guestId, nickname: String(guest.nickname || '').replace(/ — Por confirmar$/, ''), response, wouldStoreResponse: true, storedResponse: true, persistence: 'rsvp_response' };
+      console.info(JSON.stringify(notification));
+      void notifySlack(notification);
       if (env.SUMMARY_QUEUE_URL) await sqs.send(new SendMessageCommand({ QueueUrl: env.SUMMARY_QUEUE_URL, MessageBody: JSON.stringify({ activity: { type: 'rsvp_saved', nickname: String(guest.nickname || '').replace(/ — Por confirmar$/, '') } }) }));
       return jsonResponse(200, { mode: 'bypass' }, { cookies: [await issueSessionCookie({ ...guest, identityStatus: 'confirmed' })] });
     }
@@ -831,7 +840,7 @@ export const createHandler = ({
       { Put: { TableName: env.RSVP_TABLE, Item: { ...pendingKey, entityType: 'pendingRegistration', guestId: guest.guestId, nonce, sender: sender.display, senderLookup: sender.lookup, ...(response ? { response } : {}), purpose, validationExpiresAt, expiresAt, createdAt: now() }, ConditionExpression: 'attribute_not_exists(pk) OR expiresAt < :now', ExpressionAttributeValues: { ':now': now() } } },
       { Put: { TableName: env.RSVP_TABLE, Item: { pk: `REGISTRATION#${tokenHash(nonce)}`, sk: 'CHALLENGE', entityType: 'registrationChallenge', guestId: guest.guestId, sender: sender.display, senderLookup: sender.lookup, ...(response ? { response } : {}), purpose, nonce, pendingRegistration: true, status: 'pending', validationExpiresAt, expiresAt, createdAt: now() }, ConditionExpression: 'attribute_not_exists(pk)' } },
     ] }));
-    if (response) console.info(JSON.stringify({ event: 'rsvp_submission_staged', nickname: String(guest.nickname || '').replace(/ — Por confirmar$/, ''), response, wouldStoreResponse: true, storedResponse: false, persistence: 'registration_challenge', expiresAt }));
+    if (response) { const notification = { event: 'rsvp_submission_staged', guestId: guest.guestId, nickname: String(guest.nickname || '').replace(/ — Por confirmar$/, ''), response, wouldStoreResponse: true, storedResponse: false, persistence: 'registration_challenge', expiresAt }; console.info(JSON.stringify(notification)); void notifySlack(notification); }
     let appNumber;
     try { appNumber = normalizeE164(await getWhatsappNumber()); } catch { throw new ApiError(503, 'whatsapp_unavailable'); }
     const signedMessage = `contact=${encodeURIComponent(sender.display)}&nonce=${nonce}`;
