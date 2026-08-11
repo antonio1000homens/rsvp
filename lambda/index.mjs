@@ -53,7 +53,8 @@ const CONTENT_TYPES = Object.freeze({
 });
 
 const MAX_JSON_BYTES = 64 * 1024;
-const WHATSAPP_TTL_SECONDS = 5 * 60;
+const WHATSAPP_TTL_SECONDS = 30 * 60;
+const PENDING_SUBMISSION_TTL_SECONDS = 24 * 60 * 60;
 const WEBAUTHN_TTL_SECONDS = 5 * 60;
 const SESSION_TTL_SECONDS = 24 * 60 * 60;
 const CAPTCHA_TTL_SECONDS = 15 * 60;
@@ -793,10 +794,12 @@ export const createHandler = ({
     if (pending?.expiresAt >= now()) throw new ApiError(409, 'registration_already_pending');
     const sender = normalizeContactName(guest.sender || guest.nickname);
     const nonce = toBase64Url(randomBytes(32));
-    const expiresAt = now() + WHATSAPP_TTL_SECONDS;
+    const validationExpiresAt = now() + WHATSAPP_TTL_SECONDS;
+    const expiresAt = now() + PENDING_SUBMISSION_TTL_SECONDS;
+    const purpose = retrieval ? 'retrieve' : recovery ? 'recover' : 'register';
     await ddb.send(new TransactWriteCommand({ TransactItems: [
-      { Put: { TableName: env.RSVP_TABLE, Item: { ...pendingKey, entityType: 'pendingRegistration', nonce, expiresAt }, ConditionExpression: 'attribute_not_exists(pk) OR expiresAt < :now', ExpressionAttributeValues: { ':now': now() } } },
-      { Put: { TableName: env.RSVP_TABLE, Item: { pk: `REGISTRATION#${tokenHash(nonce)}`, sk: 'CHALLENGE', entityType: 'registrationChallenge', guestId: guest.guestId, sender: sender.display, senderLookup: sender.lookup, ...(response ? { response } : {}), purpose: retrieval ? 'retrieve' : 'register', status: 'pending', expiresAt, createdAt: now() }, ConditionExpression: 'attribute_not_exists(pk)' } },
+      { Put: { TableName: env.RSVP_TABLE, Item: { ...pendingKey, entityType: 'pendingRegistration', guestId: guest.guestId, nonce, sender: sender.display, senderLookup: sender.lookup, ...(response ? { response } : {}), purpose, validationExpiresAt, expiresAt, createdAt: now() }, ConditionExpression: 'attribute_not_exists(pk) OR expiresAt < :now', ExpressionAttributeValues: { ':now': now() } } },
+      { Put: { TableName: env.RSVP_TABLE, Item: { pk: `REGISTRATION#${tokenHash(nonce)}`, sk: 'CHALLENGE', entityType: 'registrationChallenge', guestId: guest.guestId, sender: sender.display, senderLookup: sender.lookup, ...(response ? { response } : {}), purpose, nonce, pendingRegistration: true, status: 'pending', validationExpiresAt, expiresAt, createdAt: now() }, ConditionExpression: 'attribute_not_exists(pk)' } },
     ] }));
     if (response) console.info(JSON.stringify({ event: 'rsvp_submission_staged', nickname: String(guest.nickname || '').replace(/ — Por confirmar$/, ''), response, wouldStoreResponse: true, storedResponse: false, persistence: 'registration_challenge', expiresAt }));
     let appNumber;
@@ -805,7 +808,7 @@ export const createHandler = ({
     const signature = createHmac('sha256', await getValidationSecret()).update(signedMessage, 'utf8').digest('base64url');
     const whatsappUrl = new URL(`https://wa.me/${appNumber.slice(1)}`);
     whatsappUrl.searchParams.set('text', `VALIDATION ${signedMessage}&sig=${signature}`);
-    return jsonResponse(200, { mode: retrieval ? 'retrieve' : recovery ? 'recover' : 'register', whatsappUrl: whatsappUrl.toString(), expiresAt }, { cookies: [await makeSignedCookie('rsvp_registration', { type: 'registration', nonce }, WHATSAPP_TTL_SECONDS)] });
+    return jsonResponse(200, { mode: purpose, whatsappUrl: whatsappUrl.toString(), expiresAt: validationExpiresAt }, { cookies: [await makeSignedCookie('rsvp_registration', { type: 'registration', nonce }, PENDING_SUBMISSION_TTL_SECONDS)] });
   };
 
   const rsvpSummary = async () => {
@@ -948,6 +951,29 @@ export const createHandler = ({
     ] }));
     const siteOrigin = new URL(env.WEBAUTHN_EXPECTED_ORIGIN || 'https://calcada2026.pt').origin;
     return jsonResponse(200, { link: `${siteOrigin}/?access=${encodeURIComponent(token)}`, expiresAt });
+  };
+
+  const reissueGuestRegistration = async (event) => {
+    await requireAdmin(event);
+    const body = parseJsonBody(event);
+    const guest = await getGuest(validGuestId(body.guestId));
+    const pendingKey = { pk: `GUEST#${guest.guestId}`, sk: 'PENDING_REGISTRATION' };
+    const pending = (await ddb.send(new GetCommand({ TableName: env.RSVP_TABLE, Key: pendingKey, ConsistentRead: true }))).Item;
+    if (!pending || pending.expiresAt < now()) throw new ApiError(404, 'pending_submission_not_found');
+    const sender = normalizeContactName(pending.sender || guest.sender || guest.nickname);
+    const nonce = toBase64Url(randomBytes(32));
+    const validationExpiresAt = now() + WHATSAPP_TTL_SECONDS;
+    await ddb.send(new TransactWriteCommand({ TransactItems: [
+      { Update: { TableName: env.RSVP_TABLE, Key: pendingKey, UpdateExpression: 'SET nonce = :nonce, sender = :sender, senderLookup = :senderLookup, validationExpiresAt = :validationExpiresAt, lastReissuedAt = :now', ConditionExpression: 'expiresAt >= :now', ExpressionAttributeValues: { ':nonce': nonce, ':sender': sender.display, ':senderLookup': sender.lookup, ':validationExpiresAt': validationExpiresAt, ':now': now() } } },
+      { Put: { TableName: env.RSVP_TABLE, Item: { pk: `REGISTRATION#${tokenHash(nonce)}`, sk: 'CHALLENGE', entityType: 'registrationChallenge', guestId: guest.guestId, sender: sender.display, senderLookup: sender.lookup, ...(pending.response ? { response: pending.response } : {}), purpose: pending.purpose || 'register', nonce, pendingRegistration: true, status: 'pending', validationExpiresAt, expiresAt: pending.expiresAt, createdAt: now(), reissuedBy: 'admin' }, ConditionExpression: 'attribute_not_exists(pk)' } },
+    ] }));
+    let appNumber;
+    try { appNumber = normalizeE164(await getWhatsappNumber()); } catch { throw new ApiError(503, 'whatsapp_unavailable'); }
+    const signedMessage = `contact=${encodeURIComponent(sender.display)}&nonce=${nonce}`;
+    const signature = createHmac('sha256', await getValidationSecret()).update(signedMessage, 'utf8').digest('base64url');
+    const whatsappUrl = new URL(`https://wa.me/${appNumber.slice(1)}`);
+    whatsappUrl.searchParams.set('text', `VALIDATION ${signedMessage}&sig=${signature}`);
+    return jsonResponse(200, { whatsappUrl: whatsappUrl.toString(), expiresAt: validationExpiresAt });
   };
 
   const consumeGuestAccessLink = async (event) => {
@@ -1220,7 +1246,7 @@ export const createHandler = ({
     if (typeof sender !== 'string' || sender.length > 240 || typeof message !== 'string' || message.length > 4096) throw new ApiError(400, 'invalid_phone_message');
     if (!env.PHONE_QUEUE_URL) throw new ApiError(503, 'phone_queue_unavailable');
     try {
-      await sqs.send(new SendMessageCommand({ QueueUrl: env.PHONE_QUEUE_URL, MessageBody: JSON.stringify({ sender, message }) }));
+      await sqs.send(new SendMessageCommand({ QueueUrl: env.PHONE_QUEUE_URL, MessageBody: JSON.stringify({ sender, message, receivedAt: now() }) }));
     } catch { throw new ApiError(503, 'phone_queue_unavailable'); }
     return emptyResponse(202);
   };
@@ -1441,6 +1467,7 @@ export const createHandler = ({
     if (path === '/api/admin/guests' && method === 'POST') return addAdminGuest(event);
     if (path === '/api/admin/guests' && method === 'DELETE') return removeAdminGuest(event);
     if (path === '/api/admin/guests/access-link' && method === 'POST') return createGuestAccessLink(event);
+    if (path === '/api/admin/guests/reissue-registration' && method === 'POST') return reissueGuestRegistration(event);
     if (path === '/api/access-link/consume' && method === 'POST') return consumeGuestAccessLink(event);
     if (path === '/api/auth/start' && method === 'POST') return authStart(event);
     if (path === '/api/auth/password/login' && method === 'POST') return passwordLogin(event);

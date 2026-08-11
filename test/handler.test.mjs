@@ -126,6 +126,10 @@ class FakeDdb {
             throw conditionalError('TransactionCanceledException');
           }
         }
+        if (operation.Delete?.ConditionExpression?.includes('nonce = :nonce')) {
+          const current = this.get(operation.Delete.Key);
+          if (!current || current.nonce !== operation.Delete.ExpressionAttributeValues[':nonce']) throw conditionalError('TransactionCanceledException');
+        }
       }
       for (const operation of input.TransactItems) {
         if (operation.Put) this.items.set(keyOf(operation.Put.Item), structuredClone(operation.Put.Item));
@@ -146,6 +150,10 @@ class FakeDdb {
             current.counter = expressionValues[':next'];
             current.lastUsedAt = expressionValues[':now'];
           }
+          if (expressionValues[':nonce'] !== undefined) current.nonce = expressionValues[':nonce'];
+          if (expressionValues[':sender'] !== undefined) current.sender = expressionValues[':sender'];
+          if (expressionValues[':senderLookup'] !== undefined) current.senderLookup = expressionValues[':senderLookup'];
+          if (expressionValues[':validationExpiresAt'] !== undefined) current.validationExpiresAt = expressionValues[':validationExpiresAt'];
         }
       }
       return {};
@@ -372,7 +380,7 @@ test('the phone webhook queues the Tasker payload for asynchronous validation', 
     body: { sender: 'Antonio Costa', message },
   }));
   assert.equal(response.statusCode, 202);
-  assert.deepEqual(JSON.parse(queued[0].MessageBody), { sender: 'Antonio Costa', message });
+  assert.deepEqual(JSON.parse(queued[0].MessageBody), { sender: 'Antonio Costa', message, receivedAt: fixedNow });
 });
 
 test('the phone worker persists a queued, signed RSVP and acknowledges business failures', async () => {
@@ -386,6 +394,25 @@ test('the phone worker persists a queued, signed RSVP and acknowledges business 
   assert.equal(await processPhoneRegistration({ sender: 'Antonio Costa', message, ddb, tableName: env.RSVP_TABLE, validationSecret: values['/rsvp/validation-secret'], now: fixedNow }), 'created');
   assert.deepEqual(ddb.get({ pk: `RSVP#${profile.guestId}`, sk: 'RESPONSE' }).availableDays, ['19 December 2026']);
   assert.equal(await processPhoneRegistration({ sender: 'Antonio Costa', message, ddb, tableName: env.RSVP_TABLE, validationSecret: values['/rsvp/validation-secret'], now: fixedNow }), 'registration_challenge_unavailable');
+});
+
+test('a callback accepted before expiry survives worker delay and an admin can safely reissue a pending RSVP', async () => {
+  const profile = guest({ sender: 'António Costa', identityStatus: 'confirmed', isAdmin: true });
+  const { handler, ddb } = makeHandler({ items: [profile] });
+  const started = await handler(request('/api/rsvp/whatsapp/start', { method: 'POST', body: {
+    guestId: profile.guestId, availableDays: ['19 December 2026'], guestCount: 2,
+    mealTypes: ['dinner'], restaurantChoice: 'Por decidir', dietaryRestrictions: 'Vegetariano',
+  } }));
+  const originalMessage = new URL(JSON.parse(started.body).whatsappUrl).searchParams.get('text');
+  const adminSession = signToken({ type: 'session', guestId: profile.guestId, sessionVersion: 1, exp: fixedNow + 600 }, values['/rsvp/session-secret']);
+  const reissued = await handler(request('/api/admin/guests/reissue-registration', {
+    method: 'POST', cookies: [`rsvp_session=${adminSession}`], body: { guestId: profile.guestId },
+  }));
+  assert.equal(reissued.statusCode, 200);
+  const reissuedMessage = new URL(JSON.parse(reissued.body).whatsappUrl).searchParams.get('text');
+  assert.equal(await processPhoneRegistration({ sender: 'Antonio Costa', message: originalMessage, ddb, tableName: env.RSVP_TABLE, validationSecret: values['/rsvp/validation-secret'], now: fixedNow + 3600, receivedAt: fixedNow }), 'registration_unavailable');
+  assert.equal(await processPhoneRegistration({ sender: 'Antonio Costa', message: reissuedMessage, ddb, tableName: env.RSVP_TABLE, validationSecret: values['/rsvp/validation-secret'], now: fixedNow + 3600, receivedAt: fixedNow + 1 }), 'created');
+  assert.deepEqual(ddb.get({ pk: `RSVP#${profile.guestId}`, sk: 'RESPONSE' }).availableDays, ['19 December 2026']);
 });
 
 test('a member can link another member through signed WhatsApp approval and synchronize both RSVPs', async () => {

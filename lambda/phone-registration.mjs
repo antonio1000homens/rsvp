@@ -10,7 +10,7 @@ const conditionalFailure = (error) =>
 
 // Business outcomes are acknowledged by SQS. Only infrastructure failures throw
 // and are retried/redriven by the queue.
-export const processPhoneRegistration = async ({ sender, message, ddb, tableName, validationSecret, now, onConfirmedRegistration = null }) => {
+export const processPhoneRegistration = async ({ sender, message, ddb, tableName, validationSecret, now, receivedAt = now, onConfirmedRegistration = null }) => {
   const logValidation = (fields) => console.info(JSON.stringify({ event: 'validation_request', ...fields }));
   let normalizedSender;
   try { normalizedSender = normalizeContactName(sender); } catch { return 'invalid_sender'; }
@@ -32,7 +32,8 @@ export const processPhoneRegistration = async ({ sender, message, ddb, tableName
 
   const key = { pk: `REGISTRATION#${tokenHash(nonce)}`, sk: 'CHALLENGE' };
   const challenge = (await ddb.send(new GetCommand({ TableName: tableName, Key: key, ConsistentRead: true }))).Item;
-  if (!challenge || challenge.status !== 'pending' || challenge.expiresAt < now) {
+  const validationExpiresAt = Number(challenge?.validationExpiresAt || challenge?.expiresAt || 0);
+  if (!challenge || challenge.status !== 'pending' || validationExpiresAt < receivedAt) {
     logValidation({ sender, contactName: decodedSender.display, outcome: 'registration_challenge_unavailable', wouldStoreResponse: false, storedResponse: false });
     return 'registration_challenge_unavailable';
   }
@@ -59,8 +60,8 @@ export const processPhoneRegistration = async ({ sender, message, ddb, tableName
   }
   try {
     await ddb.send(new TransactWriteCommand({ TransactItems: [
-      { Update: { TableName: tableName, Key: key, UpdateExpression: 'SET #status = :created, approvedAt = :now', ConditionExpression: '#status = :pending AND expiresAt >= :now', ExpressionAttributeNames: { '#status': 'status' }, ExpressionAttributeValues: { ':created': 'created', ':pending': 'pending', ':now': now } } },
-      { Delete: { TableName: tableName, Key: { pk: `GUEST#${selectedGuest.guestId}`, sk: 'PENDING_REGISTRATION' } } },
+      { Update: { TableName: tableName, Key: key, UpdateExpression: 'SET #status = :created, approvedAt = :now, receivedAt = :receivedAt', ConditionExpression: '#status = :pending AND (validationExpiresAt >= :receivedAt OR expiresAt >= :receivedAt)', ExpressionAttributeNames: { '#status': 'status' }, ExpressionAttributeValues: { ':created': 'created', ':pending': 'pending', ':now': now, ':receivedAt': receivedAt } } },
+      ...(challenge.pendingRegistration ? [{ Delete: { TableName: tableName, Key: { pk: `GUEST#${selectedGuest.guestId}`, sk: 'PENDING_REGISTRATION' }, ConditionExpression: 'nonce = :nonce', ExpressionAttributeValues: { ':nonce': nonce } } }] : []),
       { Update: { TableName: tableName, Key: { pk: `GUEST#${selectedGuest.guestId}`, sk: 'PROFILE' }, UpdateExpression: 'SET identityStatus = :confirmed, sender = :sender, updatedAt = :now', ConditionExpression: 'enabled = :enabled', ExpressionAttributeValues: { ':confirmed': 'confirmed', ':enabled': true, ':sender': decodedSender.display, ':now': now } } },
       ...(challenge.response ? [{ Put: { TableName: tableName, Item: { pk: `RSVP#${selectedGuest.guestId}`, sk: 'RESPONSE', entityType: 'rsvpResponse', guestId: selectedGuest.guestId, ...challenge.response, updatedAt: now } } }] : []),
     ] }));
