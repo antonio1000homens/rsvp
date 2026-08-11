@@ -582,7 +582,7 @@ export const createHandler = ({
         TableName: env.RSVP_TABLE,
         KeyConditionExpression: 'pk = :pk AND begins_with(sk, :prefix)',
         ExpressionAttributeValues: { ':pk': `GROUP#${groupId}`, ':prefix': 'MEMBER#' },
-        ConsistentRead: true,
+        ConsistentRead: false,
       }));
       profiles = await Promise.all((result.Items || []).map(({ guestId }) => getGuest(guestId).catch(() => null)));
     } else {
