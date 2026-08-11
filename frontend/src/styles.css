@@ -79,6 +79,11 @@ h2 { margin: 1rem 0 0; font-size: 1.8rem; }
 .admin-links-content { display: grid; gap: 0.65rem; padding: 0 0.75rem 0.75rem; }
 .admin-link-card { gap: 0.5rem; }
 .admin-link-card h3 { margin: 0; font-size: 1rem; }
+.admin-guest-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)); gap: 0.5rem; max-height: 22rem; overflow-y: auto; padding: 0.2rem; }
+.admin-guest-grid button { min-height: 2.75rem; padding: 0.45rem 0.6rem; border: 1px solid rgba(83, 60, 38, 0.24); border-radius: 0.45rem; background: rgba(255, 253, 249, 0.8); color: #513521; text-align: left; cursor: pointer; }
+.admin-guest-grid button:hover, .admin-guest-grid button:focus-visible { border-color: #9c5c2d; }
+.admin-guest-grid button[aria-selected="true"] { border-color: #9c5c2d; background: #f2d9bd; box-shadow: 0 0 0 2px rgba(156, 92, 45, 0.18); font-weight: 700; }
+.admin-guest-grid .empty { grid-column: 1 / -1; margin: 0.35rem 0; }
 .admin-link-card button, .admin-link-card .button { min-height: 2.4rem; padding: 0.45rem 0.7rem; }
 .link-section { display: grid; gap: 0.75rem; margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid rgba(83, 60, 38, 0.16); }
 .link-section h2 { font-size: 1.45rem; margin: 0; }

@@ -203,8 +203,10 @@
             <p id="admin-add-guest-status" class="status" role="status" aria-live="polite"></p>
           </form>
           <form id="admin-guest-form" class="rsvp-form">
-            <label for="admin-guest-select">Convidado</label>
-            <select id="admin-guest-select" required></select>
+            <label for="admin-guest-search">Convidado</label>
+            <input id="admin-guest-search" type="search" placeholder="Pesquisar convidado" autocomplete="off">
+            <div id="admin-guest-grid" class="admin-guest-grid" role="listbox" aria-label="Convidados"></div>
+            <select id="admin-guest-select" required hidden aria-hidden="true" tabindex="-1"></select>
             <label for="admin-guest-nickname">Nome público</label>
             <input id="admin-guest-nickname" type="text" maxlength="120" required>
             <label for="admin-guest-sender">Nome do remetente WhatsApp</label>

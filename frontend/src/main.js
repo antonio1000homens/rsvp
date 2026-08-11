@@ -64,6 +64,8 @@ const elements = {
   adminSummaryStatus: document.querySelector('#admin-summary-status'),
   adminGuestForm: document.querySelector('#admin-guest-form'),
   adminGuestSelect: document.querySelector('#admin-guest-select'),
+  adminGuestSearch: document.querySelector('#admin-guest-search'),
+  adminGuestGrid: document.querySelector('#admin-guest-grid'),
   adminGuestNickname: document.querySelector('#admin-guest-nickname'),
   adminGuestSender: document.querySelector('#admin-guest-sender'),
   adminGuestStatus: document.querySelector('#admin-guest-status'),
@@ -343,6 +345,28 @@ const renderAdminGuest = (guest) => {
   }
 };
 
+const selectedAdminGuestId = () => elements.adminGuestSelect.value;
+
+const renderAdminGuestGrid = () => {
+  const guests = elements.adminGuestSelect._guests || [];
+  const query = elements.adminGuestSearch.value.trim().toLocaleLowerCase();
+  const visible = guests.filter((guest) => `${guest.nickname} ${guest.sender || ''}`.toLocaleLowerCase().includes(query));
+  if (!visible.length) {
+    elements.adminGuestGrid.replaceChildren(Object.assign(document.createElement('p'), { className: 'empty', textContent: 'Nenhum convidado encontrado.' }));
+    return;
+  }
+  elements.adminGuestGrid.replaceChildren(...visible.map((guest) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.role = 'option';
+    button.dataset.guestId = guest.id;
+    button.setAttribute('aria-selected', String(guest.id === selectedAdminGuestId()));
+    button.textContent = guest.nickname;
+    button.title = guest.sender ? `WhatsApp: ${guest.sender}` : 'Sem remetente WhatsApp';
+    return button;
+  }));
+};
+
 const hideAdminGuestLinks = () => {
   elements.adminGuestAccessLinkValue.hidden = true;
   elements.adminCopyGuestAccessLink.hidden = true;
@@ -355,12 +379,13 @@ const hideAdminGuestLinks = () => {
 };
 
 const loadAdminGuests = async () => {
-  const selectedGuestId = elements.adminGuestSelect.value;
+  const selectedGuestId = selectedAdminGuestId();
   const { guests } = await api('/api/admin/guests');
   elements.adminGuestSelect.replaceChildren(...guests.map((guest) => new Option(`${guest.nickname} (${guest.sender || 'sem remetente'})`, guest.id)));
   const selected = guests.find((guest) => guest.id === selectedGuestId) || guests[0];
   if (selected) elements.adminGuestSelect.value = selected.id;
   elements.adminGuestSelect._guests = guests;
+  renderAdminGuestGrid();
   elements.adminRemoveGuest.disabled = !selected;
   renderAdminGuest(selected);
 };
@@ -948,12 +973,17 @@ elements.adminSummaryForm.addEventListener('submit', async (event) => {
     elements.adminSummaryStatus.textContent = readableError(error);
   }
 });
-elements.adminGuestSelect.addEventListener('change', () => {
-  const guest = elements.adminGuestSelect._guests?.find((item) => item.id === elements.adminGuestSelect.value);
+elements.adminGuestGrid.addEventListener('click', (event) => {
+  const button = event.target.closest('button[data-guest-id]');
+  if (!button) return;
+  elements.adminGuestSelect.value = button.dataset.guestId;
+  const guest = elements.adminGuestSelect._guests?.find((item) => item.id === selectedAdminGuestId());
   if (!guest) return;
   renderAdminGuest(guest);
   hideAdminGuestLinks();
+  renderAdminGuestGrid();
 });
+elements.adminGuestSearch.addEventListener('input', renderAdminGuestGrid);
 elements.adminRefreshGuestStatus.addEventListener('click', async () => {
   elements.adminRefreshGuestStatus.disabled = true;
   try {
@@ -963,7 +993,7 @@ elements.adminRefreshGuestStatus.addEventListener('click', async () => {
   finally { elements.adminRefreshGuestStatus.disabled = false; }
 });
 elements.adminResetGuestVote.addEventListener('click', async () => {
-  const guestId = elements.adminGuestSelect.value;
+  const guestId = selectedAdminGuestId();
   if (!guestId) return;
   const guest = elements.adminGuestSelect._guests?.find((item) => item.id === guestId);
   if (!window.confirm(`Repor a votação de ${guest?.nickname || 'este convidado'}? Esta ação remove as escolhas guardadas.`)) return;
@@ -975,7 +1005,7 @@ elements.adminResetGuestVote.addEventListener('click', async () => {
   finally { elements.adminResetGuestVote.disabled = false; }
 });
 elements.adminGuestAccessLink.addEventListener('click', async () => {
-  const guestId = elements.adminGuestSelect.value;
+  const guestId = selectedAdminGuestId();
   if (!guestId) return;
   elements.adminGuestAccessLink.disabled = true;
   try {
@@ -996,7 +1026,7 @@ elements.adminCopyGuestAccessLink.addEventListener('click', async () => {
   catch { elements.adminGuestAccessLinkValue.select(); document.execCommand('copy'); showToast('Link selecionado para copiar.'); }
 });
 elements.adminReissueRegistration.addEventListener('click', async () => {
-  const guestId = elements.adminGuestSelect.value;
+  const guestId = selectedAdminGuestId();
   if (!guestId) return;
   elements.adminReissueRegistration.disabled = true;
   try {
@@ -1013,7 +1043,7 @@ elements.adminReissueRegistration.addEventListener('click', async () => {
   finally { elements.adminReissueRegistration.disabled = false; }
 });
 elements.adminRecoverRegistration.addEventListener('click', async () => {
-  const guestId = elements.adminGuestSelect.value;
+  const guestId = selectedAdminGuestId();
   if (!guestId) return;
   elements.adminRecoverRegistration.disabled = true;
   try {
@@ -1038,12 +1068,13 @@ elements.adminGuestForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   elements.adminGuestStatus.textContent = 'A guardar…';
   try {
-    const result = await put('/api/admin/guests', { guestId: elements.adminGuestSelect.value, nickname: elements.adminGuestNickname.value, sender: elements.adminGuestSender.value });
+    const result = await put('/api/admin/guests', { guestId: selectedAdminGuestId(), nickname: elements.adminGuestNickname.value, sender: elements.adminGuestSender.value });
     const guests = elements.adminGuestSelect._guests || [];
     const guest = guests.find((item) => item.id === result.guest.id);
     if (guest) { guest.nickname = result.guest.nickname; guest.sender = result.guest.sender; }
     const option = [...elements.adminGuestSelect.options].find((item) => item.value === result.guest.id);
     if (option) option.textContent = `${result.guest.nickname} (${result.guest.sender})`;
+    renderAdminGuestGrid();
     elements.adminGuestStatus.textContent = '';
     showToast('Nomes guardados.');
   } catch (error) { elements.adminGuestStatus.textContent = readableError(error); }
@@ -1060,7 +1091,7 @@ elements.adminAddGuestForm.addEventListener('submit', async (event) => {
   } catch (error) { elements.adminAddGuestStatus.textContent = readableError(error); }
 });
 elements.adminRemoveGuest.addEventListener('click', async () => {
-  const guestId = elements.adminGuestSelect.value;
+  const guestId = selectedAdminGuestId();
   if (!guestId || !window.confirm('Remover este convidado da lista pública?')) return;
   elements.adminRemoveGuest.disabled = true;
   try {
