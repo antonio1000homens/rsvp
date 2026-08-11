@@ -824,7 +824,7 @@ export const createHandler = ({
       }));
       let appNumber;
       try { appNumber = normalizeE164(await getWhatsappNumber()); } catch { throw new ApiError(503, 'whatsapp_unavailable'); }
-      const signedMessage = `contact=${encodeURIComponent(String(guest.nickname || '').replace(/ — Por confirmar$/, ''))}&nonce=${pending.nonce}`;
+      const signedMessage = `nome=${encodeURIComponent(String(guest.nickname || '').replace(/ — Por confirmar$/, ''))}&nonce=${pending.nonce}`;
       const signature = createHmac('sha256', await getValidationSecret()).update(signedMessage, 'utf8').digest('base64url');
       const whatsappUrl = new URL(`https://wa.me/${appNumber.slice(1)}`);
       whatsappUrl.searchParams.set('text', `VALIDATION ${signedMessage}&sig=${signature}`);
@@ -842,7 +842,7 @@ export const createHandler = ({
     if (response) { const notification = { event: 'rsvp_submission_staged', guestId: guest.guestId, nickname: String(guest.nickname || '').replace(/ — Por confirmar$/, ''), response, wouldStoreResponse: true, storedResponse: false, persistence: 'registration_challenge', expiresAt }; console.info(JSON.stringify(notification)); void notifySlack(notification); }
     let appNumber;
     try { appNumber = normalizeE164(await getWhatsappNumber()); } catch { throw new ApiError(503, 'whatsapp_unavailable'); }
-    const signedMessage = `contact=${encodeURIComponent(String(guest.nickname || '').replace(/ — Por confirmar$/, ''))}&nonce=${nonce}`;
+    const signedMessage = `nome=${encodeURIComponent(String(guest.nickname || '').replace(/ — Por confirmar$/, ''))}&nonce=${nonce}`;
     const signature = createHmac('sha256', await getValidationSecret()).update(signedMessage, 'utf8').digest('base64url');
     const whatsappUrl = new URL(`https://wa.me/${appNumber.slice(1)}`);
     whatsappUrl.searchParams.set('text', `VALIDATION ${signedMessage}&sig=${signature}`);
@@ -1324,7 +1324,7 @@ export const createHandler = ({
       throw new ApiError(503, 'whatsapp_unavailable');
     }
     const publicName = encodeURIComponent(displayName);
-    const signedMessage = `contact=${publicName}&nonce=${nonce}`;
+    const signedMessage = `nome=${publicName}&nonce=${nonce}`;
     const validationSecret = await getValidationSecret();
     if (!validationSecret) throw new ApiError(503, 'validation_unavailable');
     const signature = createHmac('sha256', validationSecret).update(signedMessage, 'utf8').digest('base64url');
