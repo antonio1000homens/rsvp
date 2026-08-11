@@ -48,8 +48,8 @@ summary_processor_arn="$(output_value SummaryProcessorFunctionArn)"
 public_access="$(aws_cli s3api get-public-access-block --bucket "${site_bucket}" --query 'PublicAccessBlockConfiguration.[BlockPublicAcls,IgnorePublicAcls,BlockPublicPolicy,RestrictPublicBuckets]' --output text)"
 [ "${public_access}" = $'True\tTrue\tTrue\tTrue' ]
 
-table_config="$(aws_cli dynamodb describe-table --table-name "${table_name}" --query 'Table.[TableStatus,ProvisionedThroughput.ReadCapacityUnits,ProvisionedThroughput.WriteCapacityUnits,DeletionProtectionEnabled,SSEDescription.Status]' --output text)"
-[ "${table_config}" = $'ACTIVE\t1\t1\tTrue\tENABLED' ]
+table_config="$(aws_cli dynamodb describe-table --table-name "${table_name}" --query 'Table.[TableStatus,BillingModeSummary.BillingMode,ProvisionedThroughput.ReadCapacityUnits,ProvisionedThroughput.WriteCapacityUnits,DeletionProtectionEnabled,SSEDescription.Status]' --output text)"
+[ "${table_config}" = $'ACTIVE\tPAY_PER_REQUEST\t0\t0\tTrue\tENABLED' ]
 
 ttl_status="$(aws_cli dynamodb describe-time-to-live --table-name "${table_name}" --query 'TimeToLiveDescription.TimeToLiveStatus' --output text)"
 case "${ttl_status}" in ENABLED|ENABLING) ;; *) echo "Unexpected TTL status: ${ttl_status}" >&2; exit 1 ;; esac
