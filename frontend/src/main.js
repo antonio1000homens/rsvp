@@ -813,7 +813,7 @@ const completeValidation = async ({ groupsAlreadyLoaded = false } = {}) => {
   elements.newContactForm.hidden = false;
   elements.guestSearch.value = '';
   elements.guestSearch.focus();
-  elements.guestList.textContent = 'Começa a escrever para procurar o teu nome.';
+  elements.guestList.textContent = 'Filtrar nomes.';
   await loadRsvpSummary();
   if (!groupsAlreadyLoaded) await loadGroups();
 };
