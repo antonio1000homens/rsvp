@@ -45,6 +45,142 @@ Pull requests build, test, and lint without AWS credentials. Pushes to `master` 
 
 Cloudflare routing and Access configuration are intentionally separate from this AWS deployment.
 
+## Registration and voting flows
+
+The diagram below shows the browser, Lambda, DynamoDB, SQS, Tasker, and Gemini paths. RSVP choices are retained in a 24-hour pending submission while each WhatsApp validation message is valid for 30 minutes. The phone queue carries only the Tasker sender, signed validation message, and the time the callback was accepted. After a successful save, the summary queue updates the public aggregate narrative asynchronously.
+
+```mermaid
+flowchart TD
+  Browser[Guest browser]
+  Worker[Cloudflare Worker\nadds origin secret]
+  App[Lambda: rsvp-app]
+  Table[(DynamoDB: rsvp)]
+  PhoneQueue[[SQS: rsvp-phone-registration]]
+  PhoneWorker[Lambda: rsvp-phone-processor]
+  Tasker[Tasker / WhatsApp automation]
+  WhatsApp[WhatsApp Business app]
+  SummaryQueue[[SQS: rsvp-summary]]
+  SummaryWorker[Lambda: rsvp-summary-processor]
+  Gemini[Gemini REST API]
+  Admin[Admin browser]
+
+  Browser -->|CAPTCHA, optional trivia, guest selection| Worker
+  Worker --> App
+  App -->|guest profile, credentials, RSVP| Table
+
+  Browser -->|new availability + preferences| Worker
+  App -->|24-hour pending response + 30-minute challenge| Table
+  App -->|signed VALIDATION link| Browser
+  Browser --> WhatsApp
+  WhatsApp --> Tasker
+  Tasker -->|sender + exact message| Worker
+  Worker -->|POST /api/phone/register| App
+  App -->|enqueue unchanged payload| PhoneQueue
+  PhoneQueue --> PhoneWorker
+  PhoneWorker -->|verify HMAC, nonce, sender| Table
+  PhoneWorker -->|successful registration| Table
+
+  Table -->|successful RSVP mutation| SummaryQueue
+  Table -->|successful WhatsApp registration| SummaryQueue
+  SummaryQueue --> SummaryWorker
+  SummaryWorker -->|aggregate votes + public nickname only| Gemini
+  Gemini --> SummaryWorker
+  SummaryWorker -->|EVENT#DEFAULT / AI_SUMMARY| Table
+  Browser -->|GET /api/rsvp/summary| Worker
+  Worker --> App
+  App -->|aggregate totals + saved narrative| Browser
+
+  Admin -->|generate secure repeat-vote link| Worker
+  Worker --> App
+  App -->|hashed 30-day access token| Table
+  Admin -->|copy and resend link| GuestLink[Guest link]
+  GuestLink --> Browser
+  Browser -->|repeat-vote link: session or credential prompt| Worker
+  Worker --> App
+```
+
+The normal guest journey, including the WhatsApp approval path, is shown below. Every browser and Tasker API request is proxied through the Cloudflare Worker; the Lambda Function URL is never called directly.
+
+```mermaid
+sequenceDiagram
+  autonumber
+  actor Guest
+  participant Browser as Guest browser
+  participant Worker as Cloudflare Worker
+  participant App as Lambda: rsvp-app
+  participant Turnstile as Cloudflare Turnstile
+  participant Table as DynamoDB: rsvp
+  participant WhatsApp as WhatsApp
+  participant Tasker as Tasker
+  participant PhoneQueue as SQS: phone registration
+  participant PhoneWorker as Lambda: phone processor
+
+  Guest->>Browser: Open calcada2026.pt
+  Browser->>Worker: Load site and API requests
+  Worker->>App: Proxy with origin secret
+  App-->>Worker: Static site / API response
+  Worker-->>Browser: Response
+
+  Guest->>Browser: Complete CAPTCHA
+  Browser->>Worker: Request validation gate with Turnstile token
+  Worker->>App: Proxy request with Turnstile token
+  App->>Turnstile: Validate token server-side
+  Turnstile-->>App: Valid
+  App-->>Worker: CAPTCHA gate cookie and trivia state
+  Worker-->>Browser: Continue or show trivia question
+
+  opt Trivia is enabled
+    Guest->>Browser: Answer trivia question
+    Browser->>Worker: Submit answer
+    Worker->>App: Proxy request
+    App-->>Worker: Trivia gate cookie
+    Worker-->>Browser: Continue
+  end
+
+  Guest->>Browser: Search for their name
+  Browser->>Worker: GET /api/guests?q=...
+  Worker->>App: Proxy request
+  App->>Table: Read eligible public guest names
+  App-->>Worker: Matching public names
+  Worker-->>Browser: Show matching names
+  Guest->>Browser: Select their name
+  alt Password or passkey exists
+    Browser->>Worker: Start credential sign-in
+    Worker->>App: Proxy request
+    App->>Table: Verify credential and read RSVP
+    App-->>Worker: Authenticated session cookie
+    Worker-->>Browser: Show/edit saved RSVP
+  else No credential: new RSVP or recovery
+    Guest->>Browser: Complete form (new RSVP) or request recovery
+    Browser->>Worker: POST /api/rsvp/whatsapp/start
+    Worker->>App: Proxy request
+    App->>Table: Store 24-hour pending submission and 30-minute challenge
+    App-->>Worker: Signed WhatsApp link and registration cookie
+    Worker-->>Browser: Show QR/deep link
+    Guest->>WhatsApp: Send unchanged VALIDATION message
+    WhatsApp->>Tasker: Receive message
+    Tasker->>Worker: POST /api/phone/register with sender and message
+    Worker->>App: Proxy request
+    App->>PhoneQueue: Enqueue unchanged payload
+    PhoneQueue->>PhoneWorker: Deliver payload
+    PhoneWorker->>Table: Verify signature, nonce, sender and expiry, atomically save RSVP
+    loop Until approved or expired
+      Browser->>Worker: GET /api/register/status
+      Worker->>App: Proxy request
+      App->>Table: Read challenge state
+      App-->>Worker: Pending or created
+      Worker-->>Browser: Update waiting state
+    end
+    Browser->>Worker: Fetch/edit approved RSVP
+    Worker->>App: Proxy request
+    App->>Table: Read saved RSVP
+    App-->>Worker: Registration-authorized response
+    Worker-->>Browser: Offer passkey creation and editing
+  end
+```
+
+The secure repeat-vote link is a separate access path: it does not require trivia, but it is scoped to one guest, expires after 30 days, and is revoked when a replacement link is generated. Once that guest has a password or passkey, possession of the link alone is insufficient to sign in.
+
 ## Cloudflare and TLS
 
 `calcada2026.pt` and `www.calcada2026.pt` are configured as Worker custom domains. The Worker replaces any client-supplied origin credential with its secret value and proxies only to the expected HTTPS Lambda Function URL in `eu-west-2`.
@@ -143,7 +279,7 @@ Disabling removes the nickname from the public directory, revokes existing sessi
 
 Friends who are not yet listed should first join the WhatsApp group. The host can then add them to the phone contacts and seed a record with both names. Once seeded, the nickname appears in the public list as an unconfirmed guest.
 
-When a selected guest without a passkey completes the availability form, the site creates a five-minute WhatsApp challenge and only then shows its QR/deep link:
+When a selected guest without a passkey completes the availability form, the site retains the submitted choices for 24 hours and creates a 30-minute WhatsApp challenge before showing its QR/deep link. If Tasker is delayed after the callback is accepted, the queue worker uses that accepted timestamp rather than its own processing time. An administrator can reissue a fresh WhatsApp validation link for a pending submission without asking the guest to re-enter choices; reissuing invalidates the previous message.
 
 ```text
 VALIDATION contact=Ana%20Costa&nonce=<opaque-nonce>&sig=<HMAC-SHA-256-signature>

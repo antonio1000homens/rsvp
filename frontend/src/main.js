@@ -68,6 +68,9 @@ const elements = {
   adminGuestAccessLink: document.querySelector('#admin-guest-access-link'),
   adminGuestAccessLinkValue: document.querySelector('#admin-guest-access-link-value'),
   adminCopyGuestAccessLink: document.querySelector('#admin-copy-guest-access-link'),
+  adminReissueRegistration: document.querySelector('#admin-reissue-registration'),
+  adminReissueRegistrationValue: document.querySelector('#admin-reissue-registration-value'),
+  adminCopyReissueRegistration: document.querySelector('#admin-copy-reissue-registration'),
   adminAddGuestForm: document.querySelector('#admin-add-guest-form'),
   adminNewGuestNickname: document.querySelector('#admin-new-guest-nickname'),
   adminNewGuestSender: document.querySelector('#admin-new-guest-sender'),
@@ -485,6 +488,7 @@ const readableError = (error) => {
   if (error.code === 'password_not_configured') return 'Este nome ainda não tem palavra-passe configurada.';
   if (error.code === 'registration_required') return 'Este contacto precisa de concluir o registo.';
   if (error.code === 'registration_already_pending') return 'Já existe uma validação WhatsApp pendente para este contacto. Continua a utilizar a mensagem anterior.';
+  if (error.code === 'pending_submission_not_found') return 'Não existe uma submissão pendente para recuperar para este contacto.';
   if (error.code === 'invalid_link_target') return 'Esse membro não pode ser ligado.';
   if (error.code === 'member_already_linked') return 'Um dos membros já tem uma ligação pendente ou activa.';
   if (error.code === 'link_not_found') return 'A ligação já não existe.';
@@ -892,6 +896,8 @@ elements.adminGuestSelect.addEventListener('change', () => {
   elements.adminGuestSender.value = guest.sender;
   elements.adminGuestAccessLinkValue.hidden = true;
   elements.adminCopyGuestAccessLink.hidden = true;
+  elements.adminReissueRegistrationValue.hidden = true;
+  elements.adminCopyReissueRegistration.hidden = true;
 });
 elements.adminGuestAccessLink.addEventListener('click', async () => {
   const guestId = elements.adminGuestSelect.value;
@@ -909,6 +915,23 @@ elements.adminGuestAccessLink.addEventListener('click', async () => {
 elements.adminCopyGuestAccessLink.addEventListener('click', async () => {
   try { await navigator.clipboard.writeText(elements.adminGuestAccessLinkValue.value); showToast('Link copiado.'); }
   catch { elements.adminGuestAccessLinkValue.select(); document.execCommand('copy'); showToast('Link selecionado para copiar.'); }
+});
+elements.adminReissueRegistration.addEventListener('click', async () => {
+  const guestId = elements.adminGuestSelect.value;
+  if (!guestId) return;
+  elements.adminReissueRegistration.disabled = true;
+  try {
+    const result = await post('/api/admin/guests/reissue-registration', { guestId });
+    elements.adminReissueRegistrationValue.value = result.whatsappUrl;
+    elements.adminReissueRegistrationValue.hidden = false;
+    elements.adminCopyReissueRegistration.hidden = false;
+    showToast('Nova validação WhatsApp criada. A mensagem anterior foi revogada.');
+  } catch (error) { elements.adminGuestStatus.textContent = readableError(error); }
+  finally { elements.adminReissueRegistration.disabled = false; }
+});
+elements.adminCopyReissueRegistration.addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText(elements.adminReissueRegistrationValue.value); showToast('Link de validação copiado.'); }
+  catch { elements.adminReissueRegistrationValue.select(); document.execCommand('copy'); showToast('Link de validação selecionado para copiar.'); }
 });
 elements.adminGuestForm.addEventListener('submit', async (event) => {
   event.preventDefault();
