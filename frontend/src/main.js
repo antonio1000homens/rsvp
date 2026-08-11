@@ -98,6 +98,8 @@ const elements = {
   whatsappRestaurantChoices: document.querySelector('#whatsapp-restaurant-choices'),
   availabilityDays: document.querySelector('#availability-days'),
   addPasskey: document.querySelector('#add-passkey'),
+  openPassword: document.querySelector('#open-password'),
+  profileDetails: document.querySelector('#profile-details'),
   passwordForm: document.querySelector('#password-form'),
   passwordNew: document.querySelector('#password-new'),
   passwordConfirm: document.querySelector('#password-confirm'),
@@ -1146,6 +1148,10 @@ elements.passwordForm.addEventListener('submit', async (event) => {
     elements.passwordStatus.textContent = '';
     showToast('Palavra-passe guardada.');
   } catch (error) { elements.passwordStatus.textContent = readableError(error); }
+});
+elements.openPassword.addEventListener('click', () => {
+  elements.profileDetails.open = true;
+  elements.passwordNew.focus();
 });
 elements.passwordRemove.addEventListener('click', async () => {
   elements.passwordStatus.textContent = 'A remover…';
