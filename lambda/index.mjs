@@ -1570,6 +1570,7 @@ export const createHandler = ({
         if (error instanceof ApiError) {
           return jsonResponse(error.statusCode, { error: error.code, message: error.message });
         }
+        console.error(JSON.stringify({ event: 'api_internal_error', path: rawPath, method, error: error?.message || String(error) }));
         return jsonResponse(500, { error: 'internal_error' });
       }
     }
