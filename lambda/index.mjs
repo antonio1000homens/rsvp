@@ -353,7 +353,8 @@ export const createHandler = ({
     try {
       const webhook = await getParameter(env.SLACK_WEBHOOK_PARAMETER);
       if (!webhook) return;
-      await fetch(webhook, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: `RSVP ${payload.event}`, attachments: [{ color: '#2eb886', text: Object.entries(payload).filter(([key]) => key !== 'event').map(([key, value]) => `*${key}:* ${typeof value === 'object' ? JSON.stringify(value) : value}`).join('\n') }] }) });
+      const response = await fetch(webhook, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: `RSVP ${payload.event}`, attachments: [{ color: '#2eb886', text: Object.entries(payload).filter(([key]) => key !== 'event').map(([key, value]) => `*${key}:* ${typeof value === 'object' ? JSON.stringify(value) : value}`).join('\n') }] }) });
+      if (!response.ok) throw new Error(`slack_webhook_${response.status}`);
     } catch (error) { console.error(JSON.stringify({ event: 'slack_notification_failed', error: error?.message || 'unknown_error' })); }
   };
 
@@ -806,7 +807,7 @@ export const createHandler = ({
       ] }));
       const notification = { event: 'rsvp_submission_persisted', guestId: guest.guestId, nickname: String(guest.nickname || '').replace(/ — Por confirmar$/, ''), response, wouldStoreResponse: true, storedResponse: true, persistence: 'rsvp_response' };
       console.info(JSON.stringify(notification));
-      void notifySlack(notification);
+      await notifySlack(notification);
       if (env.SUMMARY_QUEUE_URL) await sqs.send(new SendMessageCommand({ QueueUrl: env.SUMMARY_QUEUE_URL, MessageBody: JSON.stringify({ activity: { type: 'rsvp_saved', nickname: String(guest.nickname || '').replace(/ — Por confirmar$/, '') } }) }));
       return jsonResponse(200, { mode: 'bypass' }, { cookies: [await issueSessionCookie({ ...guest, identityStatus: 'confirmed' })] });
     }
@@ -839,7 +840,7 @@ export const createHandler = ({
       { Put: { TableName: env.RSVP_TABLE, Item: { ...pendingKey, entityType: 'pendingRegistration', guestId: guest.guestId, nonce, sender: sender.display, senderLookup: sender.lookup, publicNameLookup: normalizeContactName(String(guest.nickname || '').replace(/ — Por confirmar$/, '')).lookup, ...(response ? { response } : {}), purpose, validationExpiresAt, expiresAt, createdAt: now() }, ConditionExpression: 'attribute_not_exists(pk) OR expiresAt < :now', ExpressionAttributeValues: { ':now': now() } } },
       { Put: { TableName: env.RSVP_TABLE, Item: { pk: `REGISTRATION#${tokenHash(nonce)}`, sk: 'CHALLENGE', entityType: 'registrationChallenge', guestId: guest.guestId, sender: sender.display, senderLookup: sender.lookup, publicNameLookup: normalizeContactName(String(guest.nickname || '').replace(/ — Por confirmar$/, '')).lookup, ...(response ? { response } : {}), purpose, nonce, pendingRegistration: true, status: 'pending', validationExpiresAt, expiresAt, createdAt: now() }, ConditionExpression: 'attribute_not_exists(pk)' } },
     ] }));
-    if (response) { const notification = { event: 'rsvp_submission_staged', guestId: guest.guestId, nickname: String(guest.nickname || '').replace(/ — Por confirmar$/, ''), response, wouldStoreResponse: true, storedResponse: false, persistence: 'registration_challenge', expiresAt }; console.info(JSON.stringify(notification)); void notifySlack(notification); }
+    if (response) { const notification = { event: 'rsvp_submission_staged', guestId: guest.guestId, nickname: String(guest.nickname || '').replace(/ — Por confirmar$/, ''), response, wouldStoreResponse: true, storedResponse: false, persistence: 'registration_challenge', expiresAt }; console.info(JSON.stringify(notification)); await notifySlack(notification); }
     let appNumber;
     try { appNumber = normalizeE164(await getWhatsappNumber()); } catch { throw new ApiError(503, 'whatsapp_unavailable'); }
     const signedMessage = `nome=${encodeURIComponent(String(guest.nickname || '').replace(/ — Por confirmar$/, ''))}&nonce=${nonce}`;
