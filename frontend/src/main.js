@@ -69,6 +69,7 @@ const elements = {
   adminGuestStatus: document.querySelector('#admin-guest-status'),
   adminRegistrationStatus: document.querySelector('#admin-registration-status'),
   adminRefreshGuestStatus: document.querySelector('#admin-refresh-guest-status'),
+  adminResetGuestVote: document.querySelector('#admin-reset-guest-vote'),
   adminGuestAccessLink: document.querySelector('#admin-guest-access-link'),
   adminGuestAccessLinkValue: document.querySelector('#admin-guest-access-link-value'),
   adminCopyGuestAccessLink: document.querySelector('#admin-copy-guest-access-link'),
@@ -961,6 +962,18 @@ elements.adminRefreshGuestStatus.addEventListener('click', async () => {
   } catch (error) { elements.adminGuestStatus.textContent = readableError(error); }
   finally { elements.adminRefreshGuestStatus.disabled = false; }
 });
+elements.adminResetGuestVote.addEventListener('click', async () => {
+  const guestId = elements.adminGuestSelect.value;
+  if (!guestId) return;
+  const guest = elements.adminGuestSelect._guests?.find((item) => item.id === guestId);
+  if (!window.confirm(`Repor a votação de ${guest?.nickname || 'este convidado'}? Esta ação remove as escolhas guardadas.`)) return;
+  elements.adminResetGuestVote.disabled = true;
+  try {
+    const result = await post('/api/admin/guests/reset-vote', { guestId });
+    showToast(result.guestIds.length > 1 ? 'Votação do par reposta.' : 'Votação reposta.');
+  } catch (error) { elements.adminGuestStatus.textContent = readableError(error); }
+  finally { elements.adminResetGuestVote.disabled = false; }
+});
 elements.adminGuestAccessLink.addEventListener('click', async () => {
   const guestId = elements.adminGuestSelect.value;
   if (!guestId) return;
@@ -1012,7 +1025,7 @@ elements.adminRecoverRegistration.addEventListener('click', async () => {
     elements.adminShareReissueRegistration.hidden = false;
     await QRCode.toCanvas(elements.adminReissueRegistrationQr, result.link, { width: 228, margin: 1, errorCorrectionLevel: 'M' });
     elements.adminReissueRegistrationQr.hidden = false;
-    showToast('Votação recuperada. Link seguro gerado.');
+    showToast('Validação WhatsApp aprovada. Link seguro gerado.');
     await loadAdminGuests();
   } catch (error) { elements.adminGuestStatus.textContent = readableError(error); }
   finally { elements.adminRecoverRegistration.disabled = false; }

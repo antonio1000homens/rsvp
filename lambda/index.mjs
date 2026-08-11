@@ -1019,6 +1019,22 @@ export const createHandler = ({
     return jsonResponse(200, { link: `${siteOrigin}/?access=${encodeURIComponent(token)}`, expiresAt, recovered: true });
   };
 
+  const resetGuestVote = async (event) => {
+    await requireAdmin(event);
+    const body = parseJsonBody(event);
+    const guest = await getGuest(validGuestId(body.guestId));
+    const marker = await guestLink(guest.guestId);
+    const guestIds = marker?.status === 'active'
+      ? [guest.guestId, marker.otherGuestId]
+      : [guest.guestId];
+    await ddb.send(guestIds.length === 1
+      ? new DeleteCommand({ TableName: env.RSVP_TABLE, Key: { pk: `RSVP#${guest.guestId}`, sk: 'RESPONSE' } })
+      : new TransactWriteCommand({ TransactItems: guestIds.map((guestId) => ({
+        Delete: { TableName: env.RSVP_TABLE, Key: { pk: `RSVP#${guestId}`, sk: 'RESPONSE' } },
+      })) }));
+    return jsonResponse(200, { reset: true, guestIds });
+  };
+
   const consumeGuestAccessLink = async (event) => {
     const body = parseJsonBody(event);
     const token = String(body.token || '');
@@ -1512,6 +1528,7 @@ export const createHandler = ({
     if (path === '/api/admin/guests/access-link' && method === 'POST') return createGuestAccessLink(event);
     if (path === '/api/admin/guests/reissue-registration' && method === 'POST') return reissueGuestRegistration(event);
     if (path === '/api/admin/guests/recover-registration' && method === 'POST') return recoverGuestRegistration(event);
+    if (path === '/api/admin/guests/reset-vote' && method === 'POST') return resetGuestVote(event);
     if (path === '/api/access-link/consume' && method === 'POST') return consumeGuestAccessLink(event);
     if (path === '/api/auth/start' && method === 'POST') return authStart(event);
     if (path === '/api/auth/password/login' && method === 'POST') return passwordLogin(event);

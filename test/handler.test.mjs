@@ -365,6 +365,24 @@ test('an admin-issued guest link bypasses trivia only until credentials are conf
   assert.equal(JSON.parse(started.body).mode, 'password');
 });
 
+test('an admin can reset an individual vote or both votes in an active linked pair', async () => {
+  const admin = guest({ isAdmin: true });
+  const other = guest({ pk: 'GUEST#123e4567-e89b-42d3-a456-426614174001', guestId: '123e4567-e89b-42d3-a456-426614174001', nickname: 'Bruno' });
+  const ownResponse = { pk: `RSVP#${admin.guestId}`, sk: 'RESPONSE', entityType: 'rsvpResponse', guestId: admin.guestId };
+  const otherResponse = { pk: `RSVP#${other.guestId}`, sk: 'RESPONSE', entityType: 'rsvpResponse', guestId: other.guestId };
+  const session = signToken({ type: 'session', guestId: admin.guestId, sessionVersion: 1, exp: fixedNow + 600 }, values['/rsvp/session-secret']);
+  const { handler, ddb } = makeHandler({ items: [admin, other, ownResponse, otherResponse, {
+    pk: `GUEST#${admin.guestId}`, sk: 'LINK', entityType: 'memberLink', linkId: 'pair-1', otherGuestId: other.guestId, status: 'active',
+  }] });
+  const response = await handler(request('/api/admin/guests/reset-vote', {
+    method: 'POST', cookies: [`rsvp_session=${session}`], body: { guestId: admin.guestId },
+  }));
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(JSON.parse(response.body).guestIds, [admin.guestId, other.guestId]);
+  assert.equal(ddb.get({ pk: ownResponse.pk, sk: ownResponse.sk }), undefined);
+  assert.equal(ddb.get({ pk: otherResponse.pk, sk: otherResponse.sk }), undefined);
+});
+
 test('the phone webhook queues the Tasker payload for asynchronous validation', async () => {
   const profile = guest({ sender: 'António Costa', identityStatus: 'confirmed' });
   const { handler, queued } = makeHandler({ items: [profile] });

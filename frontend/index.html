@@ -214,6 +214,7 @@
             <p id="admin-guest-status" class="status" role="status" aria-live="polite"></p>
             <p id="admin-registration-status" class="status" role="status" aria-live="polite"></p>
             <button id="admin-refresh-guest-status" type="button" class="secondary">Atualizar estado de validação</button>
+            <button id="admin-reset-guest-vote" type="button" class="secondary">Repor votação</button>
           </form>
           <button id="admin-remove-guest" type="button" class="secondary admin-remove-guest">Remover convidado seleccionado</button>
           <details class="admin-links">
@@ -230,10 +231,10 @@
             <canvas id="admin-guest-access-link-qr" hidden></canvas>
           </div>
           <div class="rsvp-form admin-link-card">
-            <h3>Recuperar validação WhatsApp pendente</h3>
-            <p class="fine-print">Gera uma nova mensagem de validação para a submissão pendente, sem pedir ao convidado para preencher novamente as escolhas. A mensagem anterior deixa de funcionar.</p>
+            <h3>Validação WhatsApp pendente</h3>
+            <p class="fine-print">Gera uma nova mensagem de validação ou aprova a submissão pendente. A aprovação guarda a votação e cria um link seguro de 30 dias que abre diretamente a área do convidado, sem CAPTCHA nem perguntas de validação.</p>
             <button id="admin-reissue-registration" type="button">Gerar nova validação WhatsApp</button>
-            <button id="admin-recover-registration" type="button" class="secondary">Recuperar votação e gerar link seguro</button>
+            <button id="admin-recover-registration" type="button" class="secondary">Aprovar validação e gerar link seguro</button>
             <label for="admin-reissue-registration-value" hidden>Link de validação WhatsApp</label>
             <input id="admin-reissue-registration-value" type="url" readonly hidden>
             <button id="admin-copy-reissue-registration" type="button" hidden>Copiar link</button>
