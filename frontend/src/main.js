@@ -7,6 +7,7 @@ const elements = {
   guestHeadingIntro: document.querySelector('#guest-heading-intro'),
   guestList: document.querySelector('#guest-list'),
   guestSearch: document.querySelector('#guest-search'),
+  guestStatusFilters: [...document.querySelectorAll('input[name="guest-status"]')],
   groupPicker: document.querySelector('#group-picker'),
   groupSelect: document.querySelector('#group-select'),
   validatedContent: document.querySelector('#validated-content'),
@@ -728,11 +729,15 @@ const loadGuests = async (turnstileToken = '', query = elements.guestSearch.valu
       ? { headers: { 'x-turnstile-token': turnstileToken } }
       : {});
     if (lookupGeneration !== guestLookupGeneration) return;
-    if (guests.length === 0) {
+    const enabledStatuses = new Set(elements.guestStatusFilters.filter((input) => input.checked).map((input) => input.value));
+    const visibleGuests = guests.map((guest) => guest.members
+      ? { ...guest, members: guest.members.filter((member) => enabledStatuses.has(member.status)) }
+      : guest).filter((guest) => guest.members ? guest.members.length > 0 : enabledStatuses.has(guest.status));
+    if (visibleGuests.length === 0) {
       elements.guestList.textContent = 'Ainda não existem convites disponíveis.';
       return;
     }
-    for (const guest of guests) {
+    for (const guest of visibleGuests) {
       if (guest.members) {
         const pair = document.createElement('div');
         pair.className = 'linked-guest';
@@ -740,14 +745,14 @@ const loadGuests = async (turnstileToken = '', query = elements.guestSearch.valu
         pair.append(label);
         for (const member of guest.members) {
           const button = document.createElement('button');
-          button.type = 'button'; button.className = `guest-button${member.configurationRequired ? ' guest-button-pending' : ''}`; button.textContent = `Entrar como ${member.nickname}`;
+          button.type = 'button'; button.className = `guest-button guest-status-${member.status}`; button.textContent = `Entrar como ${member.nickname}`;
           button.addEventListener('click', () => selectGuest(member));
           pair.append(button);
         }
         elements.guestList.append(pair);
       } else {
         const button = document.createElement('button');
-        button.type = 'button'; button.className = `guest-button${guest.configurationRequired ? ' guest-button-pending' : ''}`; button.textContent = guest.nickname;
+        button.type = 'button'; button.className = `guest-button guest-status-${guest.status}`; button.textContent = guest.nickname;
         button.addEventListener('click', () => selectGuest(guest));
         elements.guestList.append(button);
       }
@@ -939,6 +944,7 @@ elements.guestSearch.addEventListener('input', () => {
     loadGuests('', query);
   }, 200);
 });
+elements.guestStatusFilters.forEach((input) => input.addEventListener('change', () => loadGuests('', elements.guestSearch.value.trim())));
 elements.rsvpForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   if (!hasMealPreference(elements.rsvpForm)) {

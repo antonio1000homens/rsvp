@@ -284,7 +284,7 @@ test('public guest directory returns nicknames and IDs but no private profile da
   const response = await handler({ ...request('/api/guests'), rawQueryString: 'q=ton' });
   assert.equal(response.statusCode, 200);
   const serialized = response.body;
-  assert.deepEqual(JSON.parse(serialized), { guests: [{ id: guest().guestId, nickname: 'Toninho', registrationRequired: false }] });
+  assert.deepEqual(JSON.parse(serialized), { guests: [{ id: guest().guestId, nickname: 'Toninho', registrationRequired: false, status: 'inactive' }] });
   assert.doesNotMatch(serialized, /351911111111|contact-pepper/);
 });
 
@@ -315,7 +315,7 @@ test('groups filter the guest directory through independent many-to-many members
   const groups = await handler(request('/api/groups'));
   assert.deepEqual(JSON.parse(groups.body), { groups: [{ id: 'family', name: 'Família' }] });
   const response = await handler({ ...request('/api/guests'), rawQueryString: 'group=family&q=ton' });
-  assert.deepEqual(JSON.parse(response.body), { guests: [{ id: guest().guestId, nickname: 'Toninho', registrationRequired: false }] });
+  assert.deepEqual(JSON.parse(response.body), { guests: [{ id: guest().guestId, nickname: 'Toninho', registrationRequired: false, status: 'inactive' }] });
   const rejected = await handler({ ...request('/api/guests'), rawQueryString: 'group=missing&q=ton' });
   assert.equal(rejected.statusCode, 404);
 });
@@ -461,8 +461,8 @@ test('a member can link another member through signed WhatsApp approval and sync
     nickname: 'Ana & Bruno',
     linked: true,
     members: [
-      { id: memberA.guestId, nickname: 'Ana', registrationRequired: false },
-      { id: memberB.guestId, nickname: 'Bruno', registrationRequired: true },
+      { id: memberA.guestId, nickname: 'Ana', registrationRequired: false, status: 'voted' },
+      { id: memberB.guestId, nickname: 'Bruno', registrationRequired: true, status: 'voted' },
     ],
   });
 });

@@ -125,8 +125,14 @@ button:hover, .primary-link:hover { background: #352216; }
 button:disabled { opacity: 0.48; cursor: not-allowed; }
 button:disabled:hover { background: #513521; }
 .guest-button { width: 100%; padding: 0.75rem 1rem; text-align: left; }
-.guest-button-pending { background: #fff1c7; color: #6b4614; border: 1px solid #d49a32; }
-.guest-button-pending:hover { background: #ffe5a0; }
+.guest-status-inactive { background: #e5e7eb; color: #374151; }
+.guest-status-voted { background: #d9f7df; color: #175c2b; }
+.guest-status-awaiting { background: #fff1c7; color: #6b4614; }
+.guest-status-unavailable { background: #fee2e2; color: #991b1b; }
+.guest-status-filter { margin: .75rem 0; color: #513521; }
+.guest-status-filter summary { cursor: pointer; font-weight: 700; }
+.guest-status-filter[open] { display: grid; gap: .35rem; }
+.guest-status-filter label { display: flex; align-items: center; gap: .45rem; }
 .actions { margin-top: 1rem; }
 .credential-actions { opacity: 0.9; }
 .secondary { border: 1px solid #8a5838; background: #fff; color: #513521; }

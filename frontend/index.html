@@ -63,6 +63,13 @@
           </div>
           <label for="guest-search">Nome</label>
           <input id="guest-search" type="search" autocomplete="off" placeholder="Começa a escrever…" aria-label="Procurar o teu nome">
+          <details id="guest-status-filter" class="guest-status-filter">
+            <summary>Filtrar por estado</summary>
+            <label><input type="checkbox" name="guest-status" value="inactive" checked> Sem registo/voto</label>
+            <label><input type="checkbox" name="guest-status" value="voted" checked> Votou disponibilidade</label>
+            <label><input type="checkbox" name="guest-status" value="awaiting" checked> Novo / a aguardar contagem</label>
+            <label><input type="checkbox" name="guest-status" value="unavailable" checked> Indisponível</label>
+          </details>
           <div id="guest-list" class="guest-list" aria-live="polite"></div>
           <hr>
           <button id="toggle-new-contact" type="button" class="secondary">Não encontro o meu nome</button>

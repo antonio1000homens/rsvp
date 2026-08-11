@@ -609,6 +609,16 @@ export const createHandler = ({
       } catch { return false; }
     });
     const profileById = new Map(visibleProfiles.map((profile) => [profile.guestId, profile]));
+    const guestStatus = async (profile) => {
+      const [response, pending] = await Promise.all([
+        rsvpForGuest(profile.guestId),
+        ddb.send(new GetCommand({ TableName: env.RSVP_TABLE, Key: { pk: `GUEST#${profile.guestId}`, sk: 'PENDING_REGISTRATION' }, ConsistentRead: false })),
+      ]);
+      if (response?.noAvailability) return 'unavailable';
+      if (response) return 'voted';
+      if (profile.identityStatus === 'to_add' || pending.Item?.response) return 'awaiting';
+      return 'inactive';
+    };
     const guests = [];
     const rendered = new Set();
     for (const profile of visibleProfiles) {
@@ -618,11 +628,15 @@ export const createHandler = ({
         ? (profileById.get(marker.otherGuestId) || await getGuest(marker.otherGuestId).catch(() => null))
         : null;
       if (other && !rendered.has(other.guestId)) {
-        const members = [profile, other].sort((left, right) => left.nickname.localeCompare(right.nickname)).map(({ guestId, nickname, identityStatus }) => ({
-          id: guestId,
-          nickname: nickname.replace(/ — Por confirmar$/, ''),
-          registrationRequired: identityStatus === 'unconfirmed' || nickname.endsWith(' — Por confirmar'),
-          ...(identityStatus === 'to_add' ? { configurationRequired: true } : {}),
+        const members = await Promise.all([profile, other].sort((left, right) => left.nickname.localeCompare(right.nickname)).map(async ({ guestId, nickname, identityStatus }) => {
+          const member = { guestId, nickname, identityStatus };
+          return {
+            id: guestId,
+            nickname: nickname.replace(/ — Por confirmar$/, ''),
+            registrationRequired: identityStatus === 'unconfirmed' || nickname.endsWith(' — Por confirmar'),
+            status: await guestStatus(member),
+            ...(identityStatus === 'to_add' ? { configurationRequired: true } : {}),
+          };
         }));
         guests.push({ id: members[0].id, nickname: members.map((member) => member.nickname).join(' & '), linked: true, members });
         rendered.add(profile.guestId); rendered.add(other.guestId);
@@ -633,6 +647,7 @@ export const createHandler = ({
         id: profile.guestId,
         nickname: profile.nickname.replace(/ — Por confirmar$/, ''),
         registrationRequired: profile.identityStatus === 'unconfirmed' || profile.nickname.endsWith(' — Por confirmar'),
+        status: await guestStatus(profile),
         ...(profile.identityStatus === 'to_add' ? { configurationRequired: true } : {}),
       });
     }
