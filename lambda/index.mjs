@@ -62,7 +62,6 @@ const ADMIN_SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
 const CAPTCHA_TTL_SECONDS = 15 * 60;
 const ACCESS_LINK_TTL_SECONDS = 30 * 24 * 60 * 60;
 const ACCESS_LINK_AUTH_TTL_SECONDS = 10 * 60;
-const VALIDATION_MESSAGE = /^VALIDATION contact=([^&\s]+)&nonce=([A-Za-z0-9_-]{43})&sig=([A-Za-z0-9_-]{43})$/;
 const GUEST_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const GROUP_ID = /^[a-z0-9][a-z0-9-]{0,62}$/;
 const CONTACT_REQUEST_NUMBER = '+447810354233';
@@ -825,7 +824,7 @@ export const createHandler = ({
       }));
       let appNumber;
       try { appNumber = normalizeE164(await getWhatsappNumber()); } catch { throw new ApiError(503, 'whatsapp_unavailable'); }
-      const signedMessage = `contact=${encodeURIComponent(pending.sender)}&nonce=${pending.nonce}`;
+      const signedMessage = `nome=${encodeURIComponent(String(guest.nickname || '').replace(/ — Por confirmar$/, ''))}&nonce=${pending.nonce}`;
       const signature = createHmac('sha256', await getValidationSecret()).update(signedMessage, 'utf8').digest('base64url');
       const whatsappUrl = new URL(`https://wa.me/${appNumber.slice(1)}`);
       whatsappUrl.searchParams.set('text', `VALIDATION ${signedMessage}&sig=${signature}`);
@@ -843,7 +842,7 @@ export const createHandler = ({
     if (response) { const notification = { event: 'rsvp_submission_staged', guestId: guest.guestId, nickname: String(guest.nickname || '').replace(/ — Por confirmar$/, ''), response, wouldStoreResponse: true, storedResponse: false, persistence: 'registration_challenge', expiresAt }; console.info(JSON.stringify(notification)); void notifySlack(notification); }
     let appNumber;
     try { appNumber = normalizeE164(await getWhatsappNumber()); } catch { throw new ApiError(503, 'whatsapp_unavailable'); }
-    const signedMessage = `contact=${encodeURIComponent(sender.display)}&nonce=${nonce}`;
+    const signedMessage = `nome=${encodeURIComponent(String(guest.nickname || '').replace(/ — Por confirmar$/, ''))}&nonce=${nonce}`;
     const signature = createHmac('sha256', await getValidationSecret()).update(signedMessage, 'utf8').digest('base64url');
     const whatsappUrl = new URL(`https://wa.me/${appNumber.slice(1)}`);
     whatsappUrl.searchParams.set('text', `VALIDATION ${signedMessage}&sig=${signature}`);
@@ -1020,7 +1019,7 @@ export const createHandler = ({
     ] }));
     let appNumber;
     try { appNumber = normalizeE164(await getWhatsappNumber()); } catch { throw new ApiError(503, 'whatsapp_unavailable'); }
-    const signedMessage = `contact=${encodeURIComponent(sender.display)}&nonce=${nonce}`;
+    const signedMessage = `nome=${encodeURIComponent(String(guest.nickname || '').replace(/ — Por confirmar$/, ''))}&nonce=${nonce}`;
     const signature = createHmac('sha256', await getValidationSecret()).update(signedMessage, 'utf8').digest('base64url');
     const whatsappUrl = new URL(`https://wa.me/${appNumber.slice(1)}`);
     whatsappUrl.searchParams.set('text', `VALIDATION ${signedMessage}&sig=${signature}`);
@@ -1323,8 +1322,8 @@ export const createHandler = ({
     } catch {
       throw new ApiError(503, 'whatsapp_unavailable');
     }
-    const contact = encodeURIComponent(senderName.display);
-    const signedMessage = `contact=${contact}&nonce=${nonce}`;
+    const publicName = encodeURIComponent(displayName);
+    const signedMessage = `nome=${publicName}&nonce=${nonce}`;
     const validationSecret = await getValidationSecret();
     if (!validationSecret) throw new ApiError(503, 'validation_unavailable');
     const signature = createHmac('sha256', validationSecret).update(signedMessage, 'utf8').digest('base64url');

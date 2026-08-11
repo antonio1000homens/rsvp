@@ -2,7 +2,7 @@ import { createHmac } from 'node:crypto';
 import { GetCommand, PutCommand, TransactWriteCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import { normalizeContactName, safeEqual, tokenHash } from '../shared/identity.mjs';
 
-const VALIDATION_MESSAGE = /^VALIDATION contact=([^&\s]+)&nonce=([A-Za-z0-9_-]{43})&sig=([A-Za-z0-9_-]{43})$/;
+const VALIDATION_MESSAGE = /^VALIDATION (nome|contact)=([^&\s]+)&nonce=([A-Za-z0-9_-]{43})&sig=([A-Za-z0-9_-]{43})$/;
 const LINK_MESSAGE = /^LINK link=([0-9a-f-]{36})&contact=([^&\s]+)&nonce=([A-Za-z0-9_-]{43})&sig=([A-Za-z0-9_-]{43})$/i;
 
 const conditionalFailure = (error) =>
@@ -18,30 +18,34 @@ export const processPhoneRegistration = async ({ sender, message, ddb, tableName
   const linkMatch = LINK_MESSAGE.exec(String(message || ''));
   if (!match && !linkMatch) return 'invalid_validation_message';
   if (linkMatch) return processMemberLink({ sender, match: linkMatch, ddb, tableName, validationSecret, now });
-  const [, encodedContact, nonce, signature] = match;
-  const signedMessage = `contact=${encodedContact}&nonce=${nonce}`;
+  const [, field, encodedName, nonce, signature] = match;
+  const signedMessage = `${field}=${encodedName}&nonce=${nonce}`;
   const expectedSignature = createHmac('sha256', validationSecret).update(signedMessage, 'utf8').digest('base64url');
   if (!safeEqual(signature, expectedSignature)) {
-    let contactName = '';
-    try { contactName = decodeURIComponent(encodedContact); } catch { /* keep it empty */ }
-    logValidation({ sender, contactName, outcome: 'invalid_validation_signature', wouldStoreResponse: false, storedResponse: false });
+    let displayName = '';
+    try { displayName = decodeURIComponent(encodedName); } catch { /* keep it empty */ }
+    logValidation({ sender, displayName, outcome: 'invalid_validation_signature', wouldStoreResponse: false, storedResponse: false });
     return 'invalid_validation_signature';
   }
-  let decodedSender;
-  try { decodedSender = normalizeContactName(decodeURIComponent(encodedContact)); } catch { return 'invalid_validation_message'; }
+  let decodedName;
+  try { decodedName = normalizeContactName(decodeURIComponent(encodedName)); } catch { return 'invalid_validation_message'; }
 
   const key = { pk: `REGISTRATION#${tokenHash(nonce)}`, sk: 'CHALLENGE' };
   const challenge = (await ddb.send(new GetCommand({ TableName: tableName, Key: key, ConsistentRead: true }))).Item;
   const validationExpiresAt = Number(challenge?.validationExpiresAt || challenge?.expiresAt || 0);
   if (!challenge || challenge.status !== 'pending' || validationExpiresAt < receivedAt) {
-    logValidation({ sender, contactName: decodedSender.display, outcome: 'registration_challenge_unavailable', wouldStoreResponse: false, storedResponse: false });
+    logValidation({ sender, displayName: decodedName.display, outcome: 'registration_challenge_unavailable', wouldStoreResponse: false, storedResponse: false });
     return 'registration_challenge_unavailable';
   }
   const selectedGuest = (await ddb.send(new GetCommand({
     TableName: tableName, Key: { pk: `GUEST#${challenge.guestId}`, sk: 'PROFILE' }, ConsistentRead: true,
   }))).Item;
   const nickname = selectedGuest?.nickname ? String(selectedGuest.nickname).replace(/ — Por confirmar$/, '') : '';
-  if (challenge.senderLookup !== decodedSender.lookup || normalizedSender.lookup !== challenge.senderLookup) {
+  const expectedPublicName = selectedGuest ? normalizeContactName(String(selectedGuest.nickname || '').replace(/ — Por confirmar$/, '')) : null;
+  const messageMatchesGuest = field === 'nome'
+    ? expectedPublicName?.lookup === decodedName.lookup
+    : challenge.senderLookup === decodedName.lookup;
+  if (!messageMatchesGuest || normalizedSender.lookup !== challenge.senderLookup) {
     try {
       await ddb.send(new UpdateCommand({
         TableName: tableName, Key: key,
@@ -51,28 +55,28 @@ export const processPhoneRegistration = async ({ sender, message, ddb, tableName
         ExpressionAttributeValues: { ':error': 'sender_mismatch', ':pending': 'pending', ':now': now },
       }));
     } catch (error) { if (!conditionalFailure(error)) throw error; }
-    logValidation({ sender, contactName: decodedSender.display, nickname, expectedSender: challenge.sender, outcome: 'sender_mismatch', wouldStoreResponse: Boolean(challenge.response), storedResponse: false });
+    logValidation({ sender, displayName: decodedName.display, nickname, expectedSender: challenge.sender, outcome: 'sender_mismatch', wouldStoreResponse: Boolean(challenge.response), storedResponse: false });
     return 'sender_mismatch';
   }
   if (!selectedGuest) {
-    logValidation({ sender, contactName: decodedSender.display, nickname, outcome: 'registration_unavailable', wouldStoreResponse: Boolean(challenge.response), storedResponse: false });
+    logValidation({ sender, displayName: decodedName.display, nickname, outcome: 'registration_unavailable', wouldStoreResponse: Boolean(challenge.response), storedResponse: false });
     return 'registration_unavailable';
   }
   try {
     await ddb.send(new TransactWriteCommand({ TransactItems: [
       { Update: { TableName: tableName, Key: key, UpdateExpression: 'SET #status = :created, approvedAt = :now, receivedAt = :receivedAt', ConditionExpression: '#status = :pending AND (validationExpiresAt >= :receivedAt OR expiresAt >= :receivedAt)', ExpressionAttributeNames: { '#status': 'status' }, ExpressionAttributeValues: { ':created': 'created', ':pending': 'pending', ':now': now, ':receivedAt': receivedAt } } },
       ...(challenge.pendingRegistration ? [{ Delete: { TableName: tableName, Key: { pk: `GUEST#${selectedGuest.guestId}`, sk: 'PENDING_REGISTRATION' }, ConditionExpression: 'nonce = :nonce', ExpressionAttributeValues: { ':nonce': nonce } } }] : []),
-      { Update: { TableName: tableName, Key: { pk: `GUEST#${selectedGuest.guestId}`, sk: 'PROFILE' }, UpdateExpression: 'SET identityStatus = :confirmed, sender = :sender, lastRegistrationApprovedAt = :now, updatedAt = :now', ConditionExpression: 'enabled = :enabled', ExpressionAttributeValues: { ':confirmed': 'confirmed', ':enabled': true, ':sender': decodedSender.display, ':now': now } } },
+      { Update: { TableName: tableName, Key: { pk: `GUEST#${selectedGuest.guestId}`, sk: 'PROFILE' }, UpdateExpression: 'SET identityStatus = :confirmed, sender = :sender, senderLookup = :senderLookup, lastRegistrationApprovedAt = :now, updatedAt = :now', ConditionExpression: 'enabled = :enabled', ExpressionAttributeValues: { ':confirmed': 'confirmed', ':enabled': true, ':sender': normalizedSender.display, ':senderLookup': normalizedSender.lookup, ':now': now } } },
       ...(challenge.response ? [{ Put: { TableName: tableName, Item: { pk: `RSVP#${selectedGuest.guestId}`, sk: 'RESPONSE', entityType: 'rsvpResponse', guestId: selectedGuest.guestId, ...challenge.response, updatedAt: now } } }] : []),
     ] }));
   } catch (error) {
     if (conditionalFailure(error)) {
-      logValidation({ sender, contactName: decodedSender.display, nickname, outcome: 'registration_unavailable', wouldStoreResponse: Boolean(challenge.response), storedResponse: false });
+      logValidation({ sender, displayName: decodedName.display, nickname, outcome: 'registration_unavailable', wouldStoreResponse: Boolean(challenge.response), storedResponse: false });
       return 'registration_unavailable';
     }
     throw error;
   }
-  logValidation({ sender, contactName: decodedSender.display, nickname, expectedSender: challenge.sender, outcome: 'created', wouldStoreResponse: Boolean(challenge.response), storedResponse: Boolean(challenge.response) });
+  logValidation({ sender, displayName: decodedName.display, nickname, expectedSender: challenge.sender, outcome: 'created', wouldStoreResponse: Boolean(challenge.response), storedResponse: Boolean(challenge.response) });
   if (onConfirmedRegistration) await onConfirmedRegistration({ nickname: String(selectedGuest.nickname || '').replace(/ — Por confirmar$/, '') });
   return 'created';
 };
