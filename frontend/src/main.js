@@ -457,8 +457,8 @@ const showFlow = () => {
   elements.whatsappRsvpForm.hidden = true;
   elements.retryRegistration.hidden = true;
   elements.credentialActions.hidden = true;
-  elements.usePasskey.hidden = true;
-  elements.usePassword.hidden = true;
+  elements.usePasskey.disabled = true;
+  elements.usePassword.disabled = true;
   elements.passwordLoginForm.hidden = true;
   elements.passwordLoginForm.querySelector('label').hidden = false;
   elements.passwordLoginInput.hidden = false;
@@ -653,12 +653,15 @@ const selectGuest = async (guest) => {
   try {
     const result = await post('/api/auth/start', { guestId: guest.id });
     selectedAuthResult = result;
+    if (result.methods) {
+      elements.credentialActions.hidden = false;
+      elements.usePasskey.disabled = !result.methods.passkey;
+      elements.usePassword.disabled = !result.methods.password;
+    }
     if (result.mode === 'passkey') await usePasskey(result.options);
     if (result.mode === 'password') showPasswordLogin();
     if (result.mode === 'credentials') {
       elements.credentialActions.hidden = false;
-      elements.usePasskey.hidden = !result.methods.passkey;
-      elements.usePassword.hidden = !result.methods.password;
     }
     if (result.mode === 'whatsapp-rsvp') {
       elements.status.textContent = 'Preencha a disponibilidade para continuar.';

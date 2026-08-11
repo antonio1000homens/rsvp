@@ -1226,7 +1226,7 @@ export const createHandler = ({
     const passwordCredential = await getPasswordCredential(guest.guestId);
     if (credentials.length === 0 && !passwordCredential) {
       const hasResponse = Boolean(await rsvpForGuest(guest.guestId));
-      return jsonResponse(200, { mode: hasResponse ? 'whatsapp-retrieve' : 'whatsapp-rsvp', ...(await rsvpConfig()) });
+      return jsonResponse(200, { mode: hasResponse ? 'whatsapp-retrieve' : 'whatsapp-rsvp', methods: { passkey: false, password: false }, ...(await rsvpConfig()) });
     }
     let options;
     let cookies = [];
