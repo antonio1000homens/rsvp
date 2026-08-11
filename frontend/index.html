@@ -13,7 +13,7 @@
     <main class="card">
       <p class="eyebrow">Está convidado</p>
       <h1>Jantar de Natal — Ronda 1</h1>
-      <p id="session-intro" class="intro" hidden>Sessão iniciada como <strong id="session-name"></strong>.</p>
+      <p id="session-intro" class="intro" hidden>Sessão iniciada.</p>
       <details id="edit-response-section" class="collapsible" hidden>
         <summary>Editar a minha resposta</summary>
         <form id="rsvp-form" class="rsvp-form">
@@ -137,6 +137,10 @@
       </section>
 
       <section id="session-section" hidden>
+        <div class="session-identity">
+          <h2>Sessão de <strong id="session-name"></strong></h2>
+          <button id="add-passkey" type="button">Criar chave de acesso</button>
+        </div>
         <details class="collapsible">
           <summary>Configurar perfil</summary>
           <details id="link-section" class="link-section" hidden>
@@ -157,7 +161,6 @@
             <input id="password-confirm" name="confirmPassword" type="password" minlength="8" maxlength="128" autocomplete="new-password">
             <button type="submit">Guardar palavra-passe</button>
             <button id="password-remove" type="button" class="secondary">Remover palavra-passe</button>
-            <button id="add-passkey" type="button">Adicionar outra chave de acesso</button>
             <p id="password-status" class="status" role="status" aria-live="polite"></p>
           </form>
         </details>
