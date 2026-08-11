@@ -297,7 +297,7 @@ test('guest search lists all gated guests when empty and caps filtered matches a
   const { handler } = makeHandler({ items: profiles });
   const all = await handler(request('/api/guests'));
   assert.equal(all.statusCode, 200);
-  assert.equal(JSON.parse(all.body).guests.length, 10);
+  assert.equal(JSON.parse(all.body).guests.length, 12);
   const response = await handler({ ...request('/api/guests'), rawQueryString: 'q=guest' });
   assert.equal(response.statusCode, 200);
   assert.equal(JSON.parse(response.body).guests.length, 10);

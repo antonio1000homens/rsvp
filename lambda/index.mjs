@@ -627,7 +627,7 @@ export const createHandler = ({
       });
     }
     guests.sort((left, right) => left.nickname.localeCompare(right.nickname));
-    return jsonResponse(200, { guests: guests.slice(0, 10) });
+    return jsonResponse(200, { guests: query.trim() ? guests.slice(0, 10) : guests });
   };
 
   const rsvpForGuest = async (guestId) => {
