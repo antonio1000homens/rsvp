@@ -95,10 +95,6 @@
         <p id="status" class="status" role="status" aria-live="polite"></p>
         <div id="waiting-indicator" class="waiting-indicator" role="status" aria-label="A aguardar validação" hidden><span aria-hidden="true"></span> A aguardar validação…</div>
 
-        <div id="credential-actions" class="actions" hidden>
-          <button id="use-passkey" type="button" disabled>Entrar com chave de acesso</button>
-          <button id="use-password" type="button" class="secondary" disabled>Entrar com palavra-passe</button>
-        </div>
         <form id="password-login-form" class="rsvp-form" hidden>
           <label for="password-login-input">Palavra-passe</label>
           <input id="password-login-input" name="password" type="password" minlength="8" maxlength="128" autocomplete="current-password" required>
@@ -123,6 +119,11 @@
           <textarea id="whatsapp-proposed-restaurants" name="proposedRestaurantChoices" maxlength="600" placeholder="Nome do restaurante"></textarea>
           <button type="submit">Continuar para WhatsApp</button>
         </form>
+
+        <div id="credential-actions" class="actions credential-actions" hidden>
+          <button id="use-passkey" type="button" disabled>Entrar com chave de acesso</button>
+          <button id="use-password" type="button" class="secondary" disabled>Entrar com palavra-passe</button>
+        </div>
 
         <div id="actions" class="actions" hidden>
           <button id="retry-registration" type="button" hidden>Tentar novamente</button>

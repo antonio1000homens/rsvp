@@ -118,10 +118,13 @@ button, .primary-link {
 }
 
 button:hover, .primary-link:hover { background: #352216; }
+button:disabled { opacity: 0.48; cursor: not-allowed; }
+button:disabled:hover { background: #513521; }
 .guest-button { width: 100%; padding: 0.75rem 1rem; text-align: left; }
 .guest-button-pending { background: #fff1c7; color: #6b4614; border: 1px solid #d49a32; }
 .guest-button-pending:hover { background: #ffe5a0; }
 .actions { margin-top: 1rem; }
+.credential-actions { opacity: 0.9; }
 .secondary { border: 1px solid #8a5838; background: #fff; color: #513521; }
 .secondary:hover { background: #f4ece4; }
 
