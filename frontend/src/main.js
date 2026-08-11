@@ -46,6 +46,7 @@ const elements = {
   validationReportWhatsapp: document.querySelector('#validation-report-whatsapp'),
   backButton: document.querySelector('#back-button'),
   sessionSection: document.querySelector('#session-section'),
+  sessionIntro: document.querySelector('#session-intro'),
   sessionName: document.querySelector('#session-name'),
   sessionStatus: document.querySelector('#session-status'),
   toast: document.querySelector('#toast'),
@@ -151,6 +152,7 @@ const showAuthenticated = (nickname, message = '', passkeyLabel = 'Adicionar out
   elements.guestSection.hidden = true;
   elements.flowSection.hidden = true;
   elements.sessionSection.hidden = false;
+  elements.sessionIntro.hidden = false;
   elements.sessionName.textContent = nickname;
   elements.sessionStatus.textContent = message;
   elements.passwordForm.reset();
@@ -357,6 +359,7 @@ const showFlow = () => {
   setWaiting(false);
   elements.guestSection.hidden = true;
   elements.sessionSection.hidden = true;
+  elements.sessionIntro.hidden = true;
   elements.flowSection.hidden = false;
   elements.selectedName.textContent = selectedGuest?.nickname || 'Novo registo';
   elements.whatsappPanel.hidden = true;
@@ -380,6 +383,7 @@ const showValidatedGuestSelection = () => {
   selectedGuest = null;
   elements.flowSection.hidden = true;
   elements.sessionSection.hidden = true;
+  elements.sessionIntro.hidden = true;
   elements.guestSection.hidden = false;
   elements.captcha.hidden = true;
   elements.captchaStatus.hidden = true;
@@ -758,6 +762,7 @@ elements.addPasskey.addEventListener('click', registerPasskey);
 elements.logout.addEventListener('click', async () => {
   await post('/api/auth/logout').catch(() => {});
   elements.sessionSection.hidden = true;
+  elements.sessionIntro.hidden = true;
   elements.guestSection.hidden = false;
   selectedGuest = null;
   await loadGroups();

@@ -12,6 +12,7 @@
     <main class="card">
       <p class="eyebrow">Está convidado</p>
       <h1>Calçada 2026</h1>
+      <p id="session-intro" class="intro" hidden>Sessão iniciada como <strong id="session-name"></strong>.</p>
 
       <section id="guest-section">
         <h2 id="guest-heading" hidden>Já está registado?</h2>
@@ -116,17 +117,6 @@
       </section>
 
       <section id="session-section" hidden>
-        <p class="intro">Sessão iniciada como <strong id="session-name"></strong>.</p>
-        <details id="link-section" class="link-section" hidden>
-          <summary>Casaste-te com alguém da Rua? Adiciona aqui para contar os votos por 2</summary>
-          <p class="fine-print">O membro só precisa de validar o convite pelo WhatsApp. Depois da validação, passam a votar em conjunto e cada voto conta duas vezes, uma por cada pessoa.</p>
-          <p id="link-status" class="status"></p>
-          <select id="link-target" aria-label="Membro a adicionar"></select>
-          <button id="link-create" type="button">Adicionar</button>
-          <canvas id="link-qr" role="img" aria-label="Código QR para aprovar a ligação" hidden></canvas>
-          <a id="link-whatsapp" class="primary-link" rel="noreferrer" hidden>Enviar aprovação pelo WhatsApp</a>
-          <button id="link-cancel" type="button" class="secondary" hidden>Cancelar ligação</button>
-        </details>
         <details class="collapsible">
           <summary>Editar a minha resposta</summary>
         <form id="rsvp-form" class="rsvp-form">
@@ -155,7 +145,17 @@
         </form>
         </details>
         <details class="collapsible">
-          <summary>Palavra-passe e chaves de acesso</summary>
+          <summary>Configurar perfil</summary>
+          <details id="link-section" class="link-section" hidden>
+            <summary>Casaste-te com alguém da Rua? Adiciona aqui para contar os votos por 2</summary>
+            <p class="fine-print">O membro só precisa de validar o convite pelo WhatsApp. Depois da validação, passam a votar em conjunto e cada voto conta duas vezes, uma por cada pessoa.</p>
+            <p id="link-status" class="status"></p>
+            <select id="link-target" aria-label="Membro a adicionar"></select>
+            <button id="link-create" type="button">Adicionar</button>
+            <canvas id="link-qr" role="img" aria-label="Código QR para aprovar a ligação" hidden></canvas>
+            <a id="link-whatsapp" class="primary-link" rel="noreferrer" hidden>Enviar aprovação pelo WhatsApp</a>
+            <button id="link-cancel" type="button" class="secondary" hidden>Cancelar ligação</button>
+          </details>
           <form id="password-form" class="rsvp-form">
             <p class="fine-print">A palavra-passe deve ter entre 8 e 128 caracteres.</p>
             <label for="password-new">Nova palavra-passe</label>
@@ -164,6 +164,7 @@
             <input id="password-confirm" name="confirmPassword" type="password" minlength="8" maxlength="128" autocomplete="new-password">
             <button type="submit">Guardar palavra-passe</button>
             <button id="password-remove" type="button" class="secondary">Remover palavra-passe</button>
+            <button id="add-passkey" type="button">Adicionar outra chave de acesso</button>
             <p id="password-status" class="status" role="status" aria-live="polite"></p>
           </form>
         </details>
@@ -220,7 +221,6 @@
           <p id="admin-groups" class="status"></p>
         </details>
         <div class="actions">
-          <button id="add-passkey" type="button">Adicionar outra chave de acesso</button>
           <button id="logout" class="secondary" type="button">Terminar sessão</button>
         </div>
         <p id="session-status" class="status" role="status" aria-live="polite"></p>
