@@ -110,6 +110,8 @@ let triviaChallenge = '';
 let triviaToken = '';
 let selectedAuthResult = null;
 let toastTimer = null;
+let guestSearchTimer = null;
+let guestLookupGeneration = 0;
 
 const showToast = (message) => {
   elements.toast.textContent = message;
@@ -590,6 +592,7 @@ const consumeAccessLink = async (token) => {
 };
 
 const loadGuests = async (turnstileToken = '', query = elements.guestSearch.value.trim()) => {
+  const lookupGeneration = ++guestLookupGeneration;
   elements.guestList.replaceChildren();
   if (!query) {
     elements.guestList.textContent = 'Começa a escrever para procurar o teu nome.';
@@ -603,6 +606,7 @@ const loadGuests = async (turnstileToken = '', query = elements.guestSearch.valu
     const { guests } = await api(path, turnstileToken
       ? { headers: { 'x-turnstile-token': turnstileToken } }
       : {});
+    if (lookupGeneration !== guestLookupGeneration) return;
     if (guests.length === 0) {
       elements.guestList.textContent = 'Ainda não existem convites disponíveis.';
       return;
@@ -628,6 +632,7 @@ const loadGuests = async (turnstileToken = '', query = elements.guestSearch.valu
       }
     }
   } catch {
+    if (lookupGeneration !== guestLookupGeneration) return;
     elements.guestList.textContent = 'Não foi possível carregar os convites. Tente novamente mais tarde.';
   }
 };
@@ -799,12 +804,18 @@ elements.toggleNewContact.addEventListener('click', () => {
     : 'Esconder formulário';
 });
 elements.groupSelect.addEventListener('change', async () => {
+  if (guestSearchTimer) window.clearTimeout(guestSearchTimer);
   selectedGroup = elements.groupSelect.value;
   elements.guestSearch.value = '';
   await loadGuests('', '');
 });
-elements.guestSearch.addEventListener('input', async () => {
-  await loadGuests('', elements.guestSearch.value.trim());
+elements.guestSearch.addEventListener('input', () => {
+  if (guestSearchTimer) window.clearTimeout(guestSearchTimer);
+  const query = elements.guestSearch.value.trim();
+  guestSearchTimer = window.setTimeout(() => {
+    guestSearchTimer = null;
+    loadGuests('', query);
+  }, 200);
 });
 elements.rsvpForm.addEventListener('submit', async (event) => {
   event.preventDefault();
