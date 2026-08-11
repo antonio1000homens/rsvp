@@ -110,6 +110,8 @@ let triviaChallenge = '';
 let triviaToken = '';
 let selectedAuthResult = null;
 let toastTimer = null;
+let guestSearchTimer = null;
+let guestLookupGeneration = 0;
 
 const showToast = (message) => {
   elements.toast.textContent = message;
@@ -118,7 +120,7 @@ const showToast = (message) => {
   toastTimer = window.setTimeout(() => {
     elements.toast.hidden = true;
     toastTimer = null;
-  }, 2000);
+  }, 3000);
 };
 
 const setWaiting = (waiting) => {
@@ -590,6 +592,7 @@ const consumeAccessLink = async (token) => {
 };
 
 const loadGuests = async (turnstileToken = '', query = elements.guestSearch.value.trim()) => {
+  const lookupGeneration = ++guestLookupGeneration;
   elements.guestList.replaceChildren();
   if (!query) {
     elements.guestList.textContent = 'Começa a escrever para procurar o teu nome.';
@@ -603,6 +606,7 @@ const loadGuests = async (turnstileToken = '', query = elements.guestSearch.valu
     const { guests } = await api(path, turnstileToken
       ? { headers: { 'x-turnstile-token': turnstileToken } }
       : {});
+    if (lookupGeneration !== guestLookupGeneration) return;
     if (guests.length === 0) {
       elements.guestList.textContent = 'Ainda não existem convites disponíveis.';
       return;
@@ -628,6 +632,7 @@ const loadGuests = async (turnstileToken = '', query = elements.guestSearch.valu
       }
     }
   } catch {
+    if (lookupGeneration !== guestLookupGeneration) return;
     elements.guestList.textContent = 'Não foi possível carregar os convites. Tente novamente mais tarde.';
   }
 };
@@ -639,7 +644,7 @@ const loadGroups = async () => {
       selectedGroup = '';
       elements.groupPicker.hidden = true;
       await loadGuests();
-      return;
+      return true;
     }
     elements.groupPicker.hidden = false;
     elements.groupSelect.replaceChildren();
@@ -649,8 +654,10 @@ const loadGroups = async () => {
     elements.groupSelect.add(placeholder);
     for (const group of groups) elements.groupSelect.add(new Option(group.name, group.id));
     elements.guestList.textContent = 'Escolha o seu grupo para encontrar o seu nome.';
+    return true;
   } catch {
     elements.guestList.textContent = 'Não foi possível carregar os grupos. Tente novamente mais tarde.';
+    return false;
   }
 };
 
@@ -675,7 +682,7 @@ const loadTriviaQuestion = async (turnstileToken) => {
   }
 };
 
-const completeValidation = async () => {
+const completeValidation = async ({ groupsAlreadyLoaded = false } = {}) => {
   elements.captcha.hidden = true;
   elements.captchaStatus.hidden = true;
   elements.triviaForm.hidden = true;
@@ -688,7 +695,7 @@ const completeValidation = async () => {
   elements.guestSearch.focus();
   elements.guestList.textContent = 'Começa a escrever para procurar o teu nome.';
   await loadRsvpSummary();
-  await loadGroups();
+  if (!groupsAlreadyLoaded) await loadGroups();
 };
 
 const answerTrivia = async (event) => {
@@ -750,6 +757,21 @@ const loadTurnstile = async () => {
   });
 };
 
+const restartSecurityValidation = async () => {
+  elements.validatedContent.hidden = true;
+  elements.triviaForm.hidden = true;
+  elements.triviaStatus.hidden = true;
+  elements.captcha.hidden = false;
+  elements.captchaStatus.hidden = false;
+  elements.captchaStatus.textContent = 'A carregar a verificação de segurança…';
+  elements.captcha.replaceChildren();
+  try {
+    await loadTurnstile();
+  } catch {
+    elements.captchaStatus.textContent = 'A verificação de segurança ainda não está configurada.';
+  }
+};
+
 elements.backButton.addEventListener('click', () => {
   showValidatedGuestSelection();
 });
@@ -764,8 +786,14 @@ elements.logout.addEventListener('click', async () => {
   elements.sessionSection.hidden = true;
   elements.sessionIntro.hidden = true;
   elements.guestSection.hidden = false;
+  elements.adminSection.hidden = true;
   selectedGuest = null;
-  await loadGroups();
+  const gateStillValid = await loadGroups();
+  if (gateStillValid) {
+    await completeValidation({ groupsAlreadyLoaded: true });
+  } else {
+    await restartSecurityValidation();
+  }
 });
 elements.triviaForm.addEventListener('submit', answerTrivia);
 elements.skipTrivia.addEventListener('click', skipTrivia);
@@ -776,17 +804,23 @@ elements.toggleNewContact.addEventListener('click', () => {
     : 'Esconder formulário';
 });
 elements.groupSelect.addEventListener('change', async () => {
+  if (guestSearchTimer) window.clearTimeout(guestSearchTimer);
   selectedGroup = elements.groupSelect.value;
   elements.guestSearch.value = '';
   await loadGuests('', '');
 });
-elements.guestSearch.addEventListener('input', async () => {
-  await loadGuests('', elements.guestSearch.value.trim());
+elements.guestSearch.addEventListener('input', () => {
+  if (guestSearchTimer) window.clearTimeout(guestSearchTimer);
+  const query = elements.guestSearch.value.trim();
+  guestSearchTimer = window.setTimeout(() => {
+    guestSearchTimer = null;
+    loadGuests('', query);
+  }, 200);
 });
 elements.rsvpForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   if (!hasMealType(elements.rsvpForm)) {
-    elements.sessionStatus.textContent = 'Seleciona pelo menos uma preferência: almoço, jantar ou copos.';
+    showToast('Seleciona pelo menos uma preferência: almoço, jantar ou copos.');
     return;
   }
   const form = new FormData(elements.rsvpForm);
@@ -810,7 +844,7 @@ elements.rsvpForm.addEventListener('submit', async (event) => {
 elements.whatsappRsvpForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   if (!hasMealType(elements.whatsappRsvpForm)) {
-    elements.status.textContent = 'Seleciona pelo menos uma preferência: almoço, jantar ou copos.';
+    showToast('Seleciona pelo menos uma preferência: almoço, jantar ou copos.');
     return;
   }
   const form = new FormData(elements.whatsappRsvpForm);
