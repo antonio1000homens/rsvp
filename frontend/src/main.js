@@ -672,7 +672,6 @@ const showPasswordLogin = () => {
 
 const loginWithPassword = async (event) => {
   event.preventDefault();
-  const availabilityDays = elements.adminAvailabilityDays.value.split(/\r?\n/).map((day) => day.trim()).filter(Boolean);
   elements.passwordLoginStatus.textContent = 'A verificar…';
   try {
     const result = await post('/api/auth/password/login', { guestId: selectedGuest.id, password: elements.passwordLoginInput.value });
@@ -994,6 +993,7 @@ elements.whatsappRsvpForm.addEventListener('submit', async (event) => {
 });
 elements.adminSettingsForm.addEventListener('submit', async (event) => {
   event.preventDefault();
+  const availabilityDays = elements.adminAvailabilityDays.value.split(/\r?\n/).map((day) => day.trim()).filter(Boolean);
   const restaurantChoices = elements.adminRestaurants.value.split(/\r?\n/).map((choice) => choice.trim()).filter(Boolean);
   try {
     const triviaQuestions = elements.adminTrivia.value.split(/\r?\n/).filter(Boolean).map((line) => {
@@ -1005,7 +1005,11 @@ elements.adminSettingsForm.addEventListener('submit', async (event) => {
     elements.sessionStatus.textContent = '';
     showToast('Opções do evento guardadas.');
     await loadRsvpForm();
-  } catch { elements.sessionStatus.textContent = 'Não foi possível guardar as opções do evento. Confirma o formato das perguntas.'; }
+  } catch (error) {
+    elements.sessionStatus.textContent = error?.message === 'invalid_trivia_questions'
+      ? 'Não foi possível guardar as opções do evento. Confirma o formato das perguntas.'
+      : readableError(error);
+  }
 });
 elements.adminSummaryForm.addEventListener('submit', async (event) => {
   event.preventDefault();
