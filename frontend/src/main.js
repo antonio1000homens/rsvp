@@ -165,11 +165,13 @@ const setWaiting = (waiting) => {
 };
 
 const api = async (path, options = {}) => {
-  const response = await fetch(path, {
-    credentials: 'same-origin',
-    ...options,
-    headers: options.body ? { 'content-type': 'application/json', ...options.headers } : options.headers,
-  });
+  const requestOptions = { credentials: 'same-origin', ...options, headers: options.body ? { 'content-type': 'application/json', ...options.headers } : options.headers };
+  let response;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    response = await fetch(path, requestOptions);
+    if (response.status !== 429 || requestOptions.method && requestOptions.method !== 'GET') break;
+    await new Promise((resolve) => window.setTimeout(resolve, 250 * (attempt + 1)));
+  }
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
     if (response.status === 401 && ['authentication_required', 'session_expired'].includes(body.error)) {

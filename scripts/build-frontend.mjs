@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { build } from 'esbuild';
 
 const root = new URL('../', import.meta.url);
@@ -26,4 +26,4 @@ const cssName = await bundle('frontend/src/styles.css', 'css', { '.css': 'css' }
 const template = await readFile(new URL('frontend/index.html', root), 'utf8');
 const html = template.replace('__APP_JS__', jsName).replace('__APP_CSS__', cssName);
 await writeFile(new URL('index.html', output), html);
-
+await copyFile(new URL('frontend/favicon.svg', root), new URL('favicon.svg', output));
