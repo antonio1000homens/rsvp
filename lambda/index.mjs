@@ -236,7 +236,14 @@ const validGroupId = (value) => {
 
 const availabilityDays = (env) => {
   const days = String(env.RSVP_DAYS || '19 December 2026,20 December 2026,21 December 2026,22 December 2026,23 December 2026').split(',').map((day) => day.trim()).filter(Boolean);
-  if (days.length !== 5 || new Set(days).size !== 5 || days.some((day) => day.length > 80)) throw new ApiError(503, 'rsvp_configuration_unavailable');
+  if (!days.length || days.length > 20 || new Set(days).size !== days.length || days.some((day) => day.length > 80)) throw new ApiError(503, 'rsvp_configuration_unavailable');
+  return days;
+};
+
+const validateAvailabilityDays = (value) => {
+  if (!Array.isArray(value)) throw new ApiError(400, 'invalid_availability_days');
+  const days = [...new Set(value.map((day) => String(day).trim().replace(/\s+/g, ' ')).filter(Boolean))];
+  if (!days.length || days.length > 20 || days.some((day) => day.length > 80)) throw new ApiError(400, 'invalid_availability_days');
   return days;
 };
 
@@ -701,7 +708,7 @@ export const createHandler = ({
 
   const rsvpConfig = async () => {
     const settings = await eventSettings();
-    return { days: availabilityDays(env), restaurantChoices: settings.restaurantChoices || [] };
+    return { days: settings.availabilityDays || availabilityDays(env), restaurantChoices: settings.restaurantChoices || [] };
   };
 
   const requireAdmin = async (event) => {
@@ -956,13 +963,14 @@ export const createHandler = ({
     const body = parseJsonBody(event);
     const restaurantChoices = Array.isArray(body.restaurantChoices) ? [...new Set(body.restaurantChoices.map((choice) => String(choice).trim().replace(/\s+/g, ' ')).filter(Boolean))] : null;
     if (!restaurantChoices || restaurantChoices.length > 20 || restaurantChoices.some((choice) => choice.length > 120)) throw new ApiError(400, 'invalid_restaurant_choices');
+    const availabilityDays = validateAvailabilityDays(body.availabilityDays ?? (await rsvpConfig()).days);
     const triviaQuestions = validateTriviaQuestions(body.triviaQuestions);
     const existing = await eventSettings();
     const useTrivia = !(existing.triviaQuestions || []).length && triviaQuestions.length
       ? true
       : Boolean(body.useTrivia) && triviaQuestions.length > 0;
     const useWhatsappVerification = body.useWhatsappVerification !== false;
-    await ddb.send(new PutCommand({ TableName: env.RSVP_TABLE, Item: { pk: 'EVENT#DEFAULT', sk: 'SETTINGS', entityType: 'eventSettings', restaurantChoices, triviaQuestions, useTrivia, useWhatsappVerification, updatedAt: now() } }));
+    await ddb.send(new PutCommand({ TableName: env.RSVP_TABLE, Item: { pk: 'EVENT#DEFAULT', sk: 'SETTINGS', entityType: 'eventSettings', availabilityDays, restaurantChoices, triviaQuestions, useTrivia, useWhatsappVerification, updatedAt: now() } }));
     return jsonResponse(200, { saved: true, ...(await rsvpConfig()), triviaQuestions, useTrivia, useWhatsappVerification });
   };
 

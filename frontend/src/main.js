@@ -59,6 +59,7 @@ const elements = {
   restaurantChoices: document.querySelector('#restaurant-choices'),
   adminSection: document.querySelector('#admin-section'),
   adminDates: document.querySelector('#admin-dates'),
+  adminAvailabilityDays: document.querySelector('#admin-availability-days'),
   adminSettingsForm: document.querySelector('#admin-settings-form'),
   adminRestaurants: document.querySelector('#admin-restaurants'),
   adminTrivia: document.querySelector('#admin-trivia'),
@@ -341,6 +342,7 @@ const loadAdmin = async () => {
     const settings = await api('/api/admin/settings');
     elements.adminSection.hidden = false;
     elements.adminDates.textContent = settings.days.join(' · ');
+    elements.adminAvailabilityDays.value = settings.days.join('\n');
     elements.adminRestaurants.value = settings.restaurantChoices.join('\n');
     elements.adminTrivia.value = settings.triviaQuestions.map((item) => `${item.question} | ${item.answers.join(', ')}`).join('\n');
     elements.adminUseTrivia.checked = settings.useTrivia;
@@ -617,6 +619,7 @@ const readableError = (error) => {
   if (error.code === 'sender_mismatch') return 'Não consegui verificar o contacto. Verifica o nome ou se estás a usar o WhatsApp da conta certa.';
   if (error.code === 'invalid_contact_details') return 'Indica um nickname válido.';
   if (error.code === 'invalid_availability') return 'Seleciona pelo menos um dia disponível.';
+  if (error.code === 'invalid_availability_days') return 'Indica entre 1 e 20 datas, uma por linha.';
   if (error.code === 'invalid_meal_types') return 'Seleciona pelo menos uma preferência: almoço, jantar ou copos.';
   if (error.code === 'invalid_guest_count') return 'Indica quantas pessoas participam.';
   if (error.code === 'invalid_preference_type') return 'Seleciona uma preferência válida: 18+, +1s ou Famílias.';
@@ -667,6 +670,7 @@ const showPasswordLogin = () => {
 
 const loginWithPassword = async (event) => {
   event.preventDefault();
+  const availabilityDays = elements.adminAvailabilityDays.value.split(/\r?\n/).map((day) => day.trim()).filter(Boolean);
   elements.passwordLoginStatus.textContent = 'A verificar…';
   try {
     const result = await post('/api/auth/password/login', { guestId: selectedGuest.id, password: elements.passwordLoginInput.value });
@@ -995,7 +999,7 @@ elements.adminSettingsForm.addEventListener('submit', async (event) => {
       if (separator < 1) throw new Error('invalid_trivia_questions');
       return { question: line.slice(0, separator).trim(), answers: line.slice(separator + 1).split(',').map((answer) => answer.trim()).filter(Boolean) };
     });
-    await put('/api/admin/settings', { restaurantChoices, triviaQuestions, useTrivia: elements.adminUseTrivia.checked, useWhatsappVerification: elements.adminUseWhatsappVerification.checked });
+    await put('/api/admin/settings', { availabilityDays, restaurantChoices, triviaQuestions, useTrivia: elements.adminUseTrivia.checked, useWhatsappVerification: elements.adminUseWhatsappVerification.checked });
     elements.sessionStatus.textContent = '';
     showToast('Opções do evento guardadas.');
     await loadRsvpForm();
