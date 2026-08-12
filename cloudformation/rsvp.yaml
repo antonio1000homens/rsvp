@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: RSVP application origin (private site bucket, DynamoDB table, Lambda, and Function URL)
+Description: RSVP API and private static-site origins behind the Cloudflare Worker
 
 Parameters:
   CodeBucket:
@@ -16,7 +16,10 @@ Parameters:
     Default: rsvp
   FunctionName:
     Type: String
-    Default: rsvp-app
+    Default: rsvp-api
+  SiteFunctionName:
+    Type: String
+    Default: rsvp-site
   PhoneProcessorFunctionName:
     Type: String
     Default: rsvp-phone-processor
@@ -137,6 +140,15 @@ Resources:
         - Key: Application
           Value: rsvp
 
+  SiteLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${SiteFunctionName}
+      RetentionInDays: 30
+      Tags:
+        - Key: Application
+          Value: rsvp
+
   PhoneRegistrationDlq:
     Type: AWS::SQS::Queue
     Properties:
@@ -231,6 +243,21 @@ Resources:
       Namespace: AWS/Lambda
       MetricName: Errors
       Dimensions: [{ Name: FunctionName, Value: !Ref FunctionName }]
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      TreatMissingData: notBreaching
+      AlarmActions: [!Ref AlarmTopic]
+
+  SiteLambdaErrorsAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: rsvp-site-errors
+      Namespace: AWS/Lambda
+      MetricName: Errors
+      Dimensions: [{ Name: FunctionName, Value: !Ref SiteFunctionName }]
       Statistic: Sum
       Period: 60
       EvaluationPeriods: 1
@@ -344,16 +371,6 @@ Resources:
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
-              - Sid: ReadSiteBucket
-                Effect: Allow
-                Action:
-                  - s3:GetObject
-                Resource: !Sub ${SiteBucket.Arn}/*
-              - Sid: ListSiteBucket
-                Effect: Allow
-                Action:
-                  - s3:ListBucket
-                Resource: !GetAtt SiteBucket.Arn
               - Sid: UseRsvpTable
                 Effect: Allow
                 Action:
@@ -394,6 +411,33 @@ Resources:
                   - logs:PutLogEvents
                 Resource: !GetAtt RsvpLogGroup.Arn
 
+  SiteFunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ServePrivateRsvpSite
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ReadSiteBucket
+                Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub ${SiteBucket.Arn}/*
+              - Sid: ReadOriginSecret
+                Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${OriginSecretParameter}
+              - Sid: WriteFunctionLogs
+                Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !GetAtt SiteLogGroup.Arn
+
   RsvpFunction:
     Type: AWS::Lambda::Function
     DependsOn: RsvpLogGroup
@@ -406,13 +450,12 @@ Resources:
       Role: !GetAtt RsvpFunctionRole.Arn
       Timeout: 15
       MemorySize: 256
-      ReservedConcurrentExecutions: 5
+      ReservedConcurrentExecutions: 10
       Code:
         S3Bucket: !Ref CodeBucket
         S3Key: !Ref FunctionCodeKey
       Environment:
         Variables:
-          SITE_BUCKET: !Ref SiteBucket
           RSVP_TABLE: !Ref RsvpTable
           ORIGIN_SECRET_PARAMETER: !Ref OriginSecretParameter
           SESSION_SECRET_PARAMETER: !Ref SessionSecretParameter
@@ -429,6 +472,31 @@ Resources:
           PHONE_QUEUE_URL: !Ref PhoneRegistrationQueue
           SUMMARY_QUEUE_URL: !Ref SummaryQueue
           WHATSAPP_VERIFICATION_REQUIRED: !Ref WhatsappVerificationRequired
+      Tags:
+        - Key: Application
+          Value: rsvp
+        - Key: ManagedBy
+          Value: CloudFormation
+
+  SiteFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: SiteLogGroup
+    Properties:
+      FunctionName: !Ref SiteFunctionName
+      Runtime: nodejs24.x
+      Architectures: [arm64]
+      Handler: site.handler
+      Role: !GetAtt SiteFunctionRole.Arn
+      Timeout: 15
+      MemorySize: 256
+      ReservedConcurrentExecutions: 10
+      Code:
+        S3Bucket: !Ref CodeBucket
+        S3Key: !Ref FunctionCodeKey
+      Environment:
+        Variables:
+          SITE_BUCKET: !Ref SiteBucket
+          ORIGIN_SECRET_PARAMETER: !Ref OriginSecretParameter
       Tags:
         - Key: Application
           Value: rsvp
@@ -591,6 +659,29 @@ Resources:
       Action: lambda:InvokeFunction
       InvokedViaFunctionUrl: true
 
+  SiteFunctionUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      TargetFunctionArn: !Ref SiteFunction
+      AuthType: NONE
+      InvokeMode: BUFFERED
+
+  SiteFunctionUrlInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref SiteFunction
+      Principal: '*'
+      Action: lambda:InvokeFunctionUrl
+      FunctionUrlAuthType: NONE
+
+  SiteFunctionInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref SiteFunction
+      Principal: '*'
+      Action: lambda:InvokeFunction
+      InvokedViaFunctionUrl: true
+
 Outputs:
   SiteBucketName:
     Description: Private bucket holding the built website.
@@ -607,6 +698,18 @@ Outputs:
     Value: !GetAtt RsvpFunction.Arn
   FunctionUrl:
     Value: !GetAtt RsvpFunctionUrl.FunctionUrl
+  ApiFunctionName:
+    Value: !Ref RsvpFunction
+  ApiFunctionArn:
+    Value: !GetAtt RsvpFunction.Arn
+  ApiFunctionUrl:
+    Value: !GetAtt RsvpFunctionUrl.FunctionUrl
+  SiteFunctionName:
+    Value: !Ref SiteFunction
+  SiteFunctionArn:
+    Value: !GetAtt SiteFunction.Arn
+  SiteFunctionUrl:
+    Value: !GetAtt SiteFunctionUrl.FunctionUrl
   FunctionRoleArn:
     Value: !GetAtt RsvpFunctionRole.Arn
   PhoneRegistrationQueueUrl:

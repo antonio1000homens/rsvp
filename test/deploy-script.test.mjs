@@ -11,6 +11,7 @@ test('deployment script uses the scoped artifact prefix and protects the stack',
   const lambdaOutput = new URL('../dist/lambda/', import.meta.url);
   await mkdir(lambdaOutput, { recursive: true });
   let previousLambda;
+  let previousSite;
   let previousWorker;
   let previousSummaryWorker;
   try {
@@ -28,11 +29,14 @@ test('deployment script uses the scoped artifact prefix and protects the stack',
   } catch {
     previousSummaryWorker = null;
   }
+  try { previousSite = await readFile(new URL('site.mjs', lambdaOutput)); } catch { previousSite = null; }
   await writeFile(new URL('index.mjs', lambdaOutput), 'export const handler = async () => ({ statusCode: 200 });\n');
+  await writeFile(new URL('site.mjs', lambdaOutput), 'export const handler = async () => ({ statusCode: 200 });\n');
   await writeFile(new URL('phone-worker.mjs', lambdaOutput), 'export const handler = async () => {};\n');
   await writeFile(new URL('summary-worker.mjs', lambdaOutput), 'export const handler = async () => {};\n');
   t.after(async () => {
     if (previousLambda) await writeFile(new URL('index.mjs', lambdaOutput), previousLambda);
+    if (previousSite) await writeFile(new URL('site.mjs', lambdaOutput), previousSite);
     if (previousWorker) await writeFile(new URL('phone-worker.mjs', lambdaOutput), previousWorker);
     if (previousSummaryWorker) await writeFile(new URL('summary-worker.mjs', lambdaOutput), previousSummaryWorker);
   });

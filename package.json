@@ -9,7 +9,7 @@
   "scripts": {
     "build": "npm run clean && npm run build:frontend && npm run build:lambda",
     "build:frontend": "node scripts/build-frontend.mjs",
-    "build:lambda": "esbuild lambda/index.mjs --bundle --platform=node --target=node24 --format=esm --outfile=dist/lambda/index.mjs --external:@aws-sdk/* && esbuild lambda/phone-worker.mjs --bundle --platform=node --target=node24 --format=esm --outfile=dist/lambda/phone-worker.mjs --external:@aws-sdk/* && esbuild lambda/summary-worker.mjs --bundle --platform=node --target=node24 --format=esm --outfile=dist/lambda/summary-worker.mjs --external:@aws-sdk/* && esbuild lambda/slack-alarm-worker.mjs --bundle --platform=node --target=node24 --format=esm --outfile=dist/lambda/slack-alarm-worker.mjs --external:@aws-sdk/*",
+    "build:lambda": "esbuild lambda/index.mjs --bundle --platform=node --target=node24 --format=esm --outfile=dist/lambda/index.mjs --external:@aws-sdk/* && esbuild lambda/site.mjs --bundle --platform=node --target=node24 --format=esm --outfile=dist/lambda/site.mjs --external:@aws-sdk/* && esbuild lambda/phone-worker.mjs --bundle --platform=node --target=node24 --format=esm --outfile=dist/lambda/phone-worker.mjs --external:@aws-sdk/* && esbuild lambda/summary-worker.mjs --bundle --platform=node --target=node24 --format=esm --outfile=dist/lambda/summary-worker.mjs --external:@aws-sdk/* && esbuild lambda/slack-alarm-worker.mjs --bundle --platform=node --target=node24 --format=esm --outfile=dist/lambda/slack-alarm-worker.mjs --external:@aws-sdk/*",
     "clean": "node scripts/clean.mjs",
     "test": "node --test test/*.test.mjs",
     "check:shell": "bash -n scripts/bootstrap-aws.sh scripts/deploy-aws.sh scripts/deploy-cloudflare.sh scripts/verify-aws.sh scripts/verify-cloudflare.sh",

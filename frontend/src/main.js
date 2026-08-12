@@ -250,7 +250,7 @@ const renderLinkState = async (state) => {
 
 const loadLinkState = async () => {
   try {
-    const [{ candidates }, state] = await Promise.all([api('/api/link/candidates'), api('/api/link')]);
+    const { candidates, ...state } = await api('/api/link/bootstrap');
     elements.linkTarget.replaceChildren(new Option('Escolhe um membro', ''));
     for (const candidate of candidates) elements.linkTarget.add(new Option(candidate.nickname, candidate.id));
     await renderLinkState(state);

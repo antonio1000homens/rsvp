@@ -10,7 +10,6 @@ import {
   TransactWriteCommand,
   UpdateCommand,
 } from '@aws-sdk/lib-dynamodb';
-import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { SendMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
 import { GetParameterCommand, SSMClient } from '@aws-sdk/client-ssm';
 import {
@@ -36,21 +35,6 @@ const BASE_HEADERS = Object.freeze({
   'referrer-policy': 'no-referrer',
   'x-content-type-options': 'nosniff',
   'x-frame-options': 'DENY',
-});
-
-const CONTENT_TYPES = Object.freeze({
-  '.css': 'text/css; charset=utf-8',
-  '.gif': 'image/gif',
-  '.html': 'text/html; charset=utf-8',
-  '.ico': 'image/x-icon',
-  '.jpeg': 'image/jpeg',
-  '.jpg': 'image/jpeg',
-  '.js': 'text/javascript; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.png': 'image/png',
-  '.svg': 'image/svg+xml',
-  '.webp': 'image/webp',
-  '.woff2': 'font/woff2',
 });
 
 const MAX_JSON_BYTES = 64 * 1024;
@@ -153,28 +137,6 @@ export const verifyPassword = (value, encoded) => {
   }
 };
 
-export const safeObjectKey = (rawPath) => {
-  let decoded;
-  try {
-    decoded = decodeURIComponent(rawPath || '/');
-  } catch {
-    return null;
-  }
-
-  if (!decoded.startsWith('/') || decoded.includes('\\') || decoded.includes('\0')) return null;
-  const segments = decoded.split('/').filter(Boolean);
-  if (segments.some((segment) => segment === '.' || segment === '..')) return null;
-  if (segments.length === 0) return 'index.html';
-
-  const key = segments.join('/');
-  return decoded.endsWith('/') ? `${key}/index.html` : key;
-};
-
-export const contentTypeFor = (key) => {
-  const dot = key.lastIndexOf('.');
-  return dot === -1 ? 'application/octet-stream' : CONTENT_TYPES[key.slice(dot).toLowerCase()] || 'application/octet-stream';
-};
-
 export const signToken = (payload, secret) => {
   const encoded = toBase64Url(JSON.stringify(payload));
   const signature = createHmac('sha256', secret).update(encoded).digest('base64url');
@@ -193,19 +155,6 @@ export const verifyToken = (value, secret, now = unixNow()) => {
     return null;
   }
 };
-
-const bodyToBuffer = async (body) => {
-  if (!body) return Buffer.alloc(0);
-  if (body instanceof Uint8Array) return Buffer.from(body);
-  if (typeof body.transformToByteArray === 'function') return Buffer.from(await body.transformToByteArray());
-
-  const chunks = [];
-  for await (const chunk of body) chunks.push(Buffer.from(chunk));
-  return Buffer.concat(chunks);
-};
-
-const isMissingObject = (error) =>
-  error?.name === 'NoSuchKey' || error?.name === 'NotFound' || error?.$metadata?.httpStatusCode === 404;
 
 const parseJsonBody = (event) => {
   const contents = event.isBase64Encoded
@@ -306,7 +255,6 @@ const validateTriviaQuestions = (raw) => {
 };
 
 export const createHandler = ({
-  s3 = new S3Client({}),
   ssm = new SSMClient({}),
   sqs = new SQSClient({}),
   ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
@@ -372,11 +320,6 @@ export const createHandler = ({
   const getWhatsappNumber = () => getParameter(env.WHATSAPP_NUMBER_PARAMETER, false);
   const getTurnstileSiteKey = () => getParameter(env.TURNSTILE_SITE_KEY_PARAMETER, false, false).catch(() => '');
   const getTurnstileSecret = () => getParameter(env.TURNSTILE_SECRET_PARAMETER, true, false).catch(() => '');
-
-  const fetchObject = async (key) => {
-    const result = await s3.send(new GetObjectCommand({ Bucket: env.SITE_BUCKET, Key: key }));
-    return bodyToBuffer(result.Body);
-  };
 
   const getGuest = async (guestId) => {
     const result = await ddb.send(new GetCommand({
@@ -746,9 +689,7 @@ export const createHandler = ({
     return jsonResponse(200, { saved: true, ...config, response: choices });
   };
 
-  const linkCandidates = async (event) => {
-    const sessionGuest = await readSessionGuest(event);
-    if (!sessionGuest) throw new ApiError(401, 'authentication_required');
+  const linkCandidatesFor = async (sessionGuest) => {
     const result = await ddb.send(new ScanCommand({
       TableName: env.RSVP_TABLE,
       FilterExpression: 'sk = :profile AND entityType = :guest AND enabled = :enabled',
@@ -759,7 +700,24 @@ export const createHandler = ({
       .filter((item) => item.guestId !== sessionGuest.guestId && item.identityStatus !== 'to_add')
       .map((item) => ({ id: item.guestId, nickname: String(item.nickname || '').replace(/ — Por confirmar$/, '') }))
       .sort((left, right) => left.nickname.localeCompare(right.nickname));
+    return candidates;
+  };
+
+  const linkCandidates = async (event) => {
+    const sessionGuest = await readSessionGuest(event);
+    if (!sessionGuest) throw new ApiError(401, 'authentication_required');
+    const candidates = await linkCandidatesFor(sessionGuest);
     return jsonResponse(200, { candidates });
+  };
+
+  const linkBootstrap = async (event) => {
+    const sessionGuest = await readSessionGuest(event);
+    if (!sessionGuest) throw new ApiError(401, 'authentication_required');
+    const [candidates, state] = await Promise.all([
+      linkCandidatesFor(sessionGuest),
+      linkState(sessionGuest.guestId),
+    ]);
+    return jsonResponse(200, { candidates, ...state });
   };
 
   const createLink = async (event) => {
@@ -1576,6 +1534,7 @@ export const createHandler = ({
     if (path === '/api/rsvp' && method === 'GET') return getRsvp(event);
     if (path === '/api/rsvp' && method === 'PUT') return saveRsvp(event);
     if (path === '/api/link/candidates' && method === 'GET') return linkCandidates(event);
+    if (path === '/api/link/bootstrap' && method === 'GET') return linkBootstrap(event);
     if (path === '/api/link' && method === 'GET') {
       const sessionGuest = await readSessionGuest(event);
       if (!sessionGuest) throw new ApiError(401, 'authentication_required');
@@ -1639,46 +1598,7 @@ export const createHandler = ({
       }
     }
 
-    if (method !== 'GET' && method !== 'HEAD') {
-      return jsonResponse(405, { error: 'method_not_allowed' }, { headers: { allow: 'GET, HEAD' } });
-    }
-
-    const key = safeObjectKey(rawPath);
-    if (!key) return jsonResponse(400, { error: 'invalid_path' });
-
-    let resolvedKey = key;
-    let contents;
-    try {
-      contents = await fetchObject(resolvedKey);
-    } catch (error) {
-      const spaCandidate = !key.split('/').at(-1).includes('.');
-      if (!isMissingObject(error) || !spaCandidate) {
-        return jsonResponse(isMissingObject(error) ? 404 : 500, {
-          error: isMissingObject(error) ? 'not_found' : 'internal_error',
-        });
-      }
-
-      resolvedKey = 'index.html';
-      try {
-        contents = await fetchObject(resolvedKey);
-      } catch (fallbackError) {
-        return jsonResponse(isMissingObject(fallbackError) ? 404 : 500, {
-          error: isMissingObject(fallbackError) ? 'not_found' : 'internal_error',
-        });
-      }
-    }
-
-    const immutable = /\.[a-f0-9]{12}\.[a-z0-9]+$/i.test(resolvedKey);
-    return {
-      statusCode: 200,
-      headers: {
-        ...BASE_HEADERS,
-        'cache-control': immutable ? 'public, max-age=31536000, immutable' : 'no-cache',
-        'content-type': contentTypeFor(resolvedKey),
-      },
-      isBase64Encoded: true,
-      body: method === 'HEAD' ? '' : contents.toString('base64'),
-    };
+    return jsonResponse(404, { error: 'not_found' });
   };
 };
 

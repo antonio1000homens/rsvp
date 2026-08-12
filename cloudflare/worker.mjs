@@ -32,6 +32,12 @@ export const validatedOrigin = (value) => {
   return origin;
 };
 
+export const originForPath = (path, env) => {
+  const apiOrigin = env.API_ORIGIN_URL || env.ORIGIN_URL;
+  const siteOrigin = env.SITE_ORIGIN_URL || env.ORIGIN_URL;
+  return path === '/health' || path === '/api' || path.startsWith('/api/') ? apiOrigin : siteOrigin;
+};
+
 export const proxyRequest = async (request, env, fetchImpl = fetch) => {
   const incomingUrl = new URL(request.url);
   if (incomingUrl.protocol !== 'https:') {
@@ -43,7 +49,7 @@ export const proxyRequest = async (request, env, fetchImpl = fetch) => {
     return Response.redirect(incomingUrl, 308);
   }
 
-  const origin = validatedOrigin(env.ORIGIN_URL);
+  const origin = validatedOrigin(originForPath(incomingUrl.pathname, env));
   if (!origin || !env.ORIGIN_SECRET) return errorResponse();
 
   origin.pathname = incomingUrl.pathname;

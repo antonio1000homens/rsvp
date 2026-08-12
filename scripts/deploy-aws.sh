@@ -61,12 +61,13 @@ if [ ! -f "${ROOT_DIR}/dist/lambda/index.mjs" ]; then
 fi
 
 cp "${ROOT_DIR}/dist/lambda/index.mjs" "${TEMP_DIR}/index.mjs"
+cp "${ROOT_DIR}/dist/lambda/site.mjs" "${TEMP_DIR}/site.mjs"
 cp "${ROOT_DIR}/dist/lambda/phone-worker.mjs" "${TEMP_DIR}/phone-worker.mjs"
 cp "${ROOT_DIR}/dist/lambda/summary-worker.mjs" "${TEMP_DIR}/summary-worker.mjs"
 cp "${ROOT_DIR}/dist/lambda/slack-alarm-worker.mjs" "${TEMP_DIR}/slack-alarm-worker.mjs"
 (
   cd "${TEMP_DIR}"
-  zip -q lambda.zip index.mjs phone-worker.mjs summary-worker.mjs slack-alarm-worker.mjs
+  zip -q lambda.zip index.mjs site.mjs phone-worker.mjs summary-worker.mjs slack-alarm-worker.mjs
 )
 
 if [ -n "${GITHUB_SHA:-}" ]; then
@@ -100,6 +101,8 @@ aws_cli cloudformation deploy \
   --parameter-overrides \
     CodeBucket="${CODE_BUCKET}" \
     FunctionCodeKey="${function_code_key}" \
+    FunctionName="${API_FUNCTION_NAME:-rsvp-api}" \
+    SiteFunctionName="${SITE_FUNCTION_NAME:-rsvp-site}" \
     WhatsappVerificationRequired="${whatsapp_verification_required}" \
     AvailabilityDays="${AVAILABILITY_DAYS:-19 December 2026,20 December 2026,21 December 2026,22 December 2026,23 December 2026}" \
     SiteBucketName="$(aws_cli cloudformation describe-stacks --stack-name "${STACK_NAME}" --query "Stacks[0].Parameters[?ParameterKey=='SiteBucketName'].ParameterValue | [0]" --output text 2>/dev/null || echo "rsvp-$(aws_cli sts get-caller-identity --query Account --output text)-${REGION}-site")"
@@ -123,12 +126,15 @@ aws_cli cloudformation update-termination-protection \
   --stack-name "${STACK_NAME}" \
   --enable-termination-protection >/dev/null
 
-function_url="$(aws_cli cloudformation describe-stacks \
+api_function_url="$(aws_cli cloudformation describe-stacks \
   --stack-name "${STACK_NAME}" \
-  --query "Stacks[0].Outputs[?OutputKey=='FunctionUrl'].OutputValue | [0]" \
+  --query "Stacks[0].Outputs[?OutputKey=='ApiFunctionUrl'].OutputValue | [0]" \
   --output text)"
-http_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "${function_url}")"
-[ "${http_status}" = "403" ] || error "Expected an unauthenticated Function URL request to return 403, got ${http_status}."
+site_function_url="$(aws_cli cloudformation describe-stacks --stack-name "${STACK_NAME}" --query "Stacks[0].Outputs[?OutputKey=='SiteFunctionUrl'].OutputValue | [0]" --output text)"
+for function_url in "${api_function_url}" "${site_function_url}"; do
+  http_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "${function_url}")"
+  [ "${http_status}" = "403" ] || error "Expected an unauthenticated Function URL request to return 403, got ${http_status}."
+done
 
 aws_cli cloudformation describe-stacks \
   --stack-name "${STACK_NAME}" \

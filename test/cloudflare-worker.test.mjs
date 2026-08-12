@@ -1,14 +1,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { proxyRequest, validatedOrigin } from '../cloudflare/worker.mjs';
+import { originForPath, proxyRequest, validatedOrigin } from '../cloudflare/worker.mjs';
 
 const env = {
-  ORIGIN_URL: 'https://example.lambda-url.eu-west-2.on.aws/',
+  API_ORIGIN_URL: 'https://api.lambda-url.eu-west-2.on.aws/',
+  SITE_ORIGIN_URL: 'https://site.lambda-url.eu-west-2.on.aws/',
   ORIGIN_SECRET: 'server-side-secret',
 };
 
 test('accepts only the expected HTTPS Lambda origin', () => {
-  assert.ok(validatedOrigin(env.ORIGIN_URL));
+  assert.ok(validatedOrigin(env.API_ORIGIN_URL));
   assert.equal(validatedOrigin('http://example.lambda-url.eu-west-2.on.aws/'), null);
   assert.equal(validatedOrigin('https://example.lambda-url.us-east-1.on.aws/'), null);
   assert.equal(validatedOrigin('https://lambda-url.eu-west-2.on.aws.attacker.example/'), null);
@@ -55,12 +56,18 @@ test('replaces a client-supplied origin secret and preserves path and query', as
     },
   );
 
-  assert.equal(observed.url, 'https://example.lambda-url.eu-west-2.on.aws/api/example?value=1');
+  assert.equal(observed.url, 'https://api.lambda-url.eu-west-2.on.aws/api/example?value=1');
   assert.equal(observed.init.headers.get('x-rsvp-origin-secret'), 'server-side-secret');
   assert.equal(observed.init.headers.get('x-forwarded-host'), 'calcada2026.pt');
   assert.equal(response.status, 200);
   assert.equal(response.headers.get('x-amzn-trace-id'), null);
   assert.equal(response.headers.get('strict-transport-security'), 'max-age=31536000; includeSubDomains');
+});
+
+test('selects isolated API and site origins by path', () => {
+  assert.equal(originForPath('/api/link/bootstrap', env), env.API_ORIGIN_URL);
+  assert.equal(originForPath('/health', env), env.API_ORIGIN_URL);
+  assert.equal(originForPath('/assets/app.js', env), env.SITE_ORIGIN_URL);
 });
 
 test('forwards request bodies without logging or parsing them', async () => {

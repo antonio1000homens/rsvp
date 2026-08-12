@@ -40,6 +40,8 @@ site_bucket="$(output_value SiteBucketName)"
 table_name="$(output_value TableName)"
 function_name="$(output_value FunctionName)"
 function_url="$(output_value FunctionUrl)"
+site_function_name="$(output_value SiteFunctionName)"
+site_function_url="$(output_value SiteFunctionUrl)"
 phone_queue_url="$(output_value PhoneRegistrationQueueUrl)"
 phone_processor_arn="$(output_value PhoneProcessorFunctionArn)"
 summary_queue_url="$(output_value SummaryQueueUrl)"
@@ -61,7 +63,11 @@ auth_config="$(aws_cli lambda get-function-configuration --function-name "${func
 [ "${auth_config}" = $'/rsvp/whatsapp-number\t/rsvp/phone-webhook-secret\t/rsvp/turnstile-site-key\t/rsvp/turnstile-secret\tcalcada2026.pt\thttps://calcada2026.pt' ]
 
 concurrency="$(aws_cli lambda get-function-concurrency --function-name "${function_name}" --query 'ReservedConcurrentExecutions' --output text)"
-[ "${concurrency}" = '5' ]
+[ "${concurrency}" = '10' ]
+site_function_config="$(aws_cli lambda get-function-configuration --function-name "${site_function_name}" --query '[Runtime,MemorySize,Timeout,Environment.Variables.SITE_BUCKET]' --output text)"
+[ "${site_function_config}" = $'nodejs24.x\t256\t15\t'"${site_bucket}" ]
+site_concurrency="$(aws_cli lambda get-function-concurrency --function-name "${site_function_name}" --query 'ReservedConcurrentExecutions' --output text)"
+[ "${site_concurrency}" = '10' ]
 
 queue_config="$(aws_cli sqs get-queue-attributes --queue-url "${phone_queue_url}" --attribute-names SqsManagedSseEnabled RedrivePolicy --query 'Attributes.[SqsManagedSseEnabled,RedrivePolicy]' --output text)"
 queue_sse="${queue_config%%$'\t'*}"
@@ -106,5 +112,7 @@ retention="$(aws_cli logs describe-log-groups --log-group-name-prefix "/aws/lamb
 
 http_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "${function_url}")"
 [ "${http_status}" = '403' ]
+site_http_status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' "${site_function_url}")"
+[ "${site_http_status}" = '403' ]
 
 echo "Verified RSVP stack ${STACK_NAME}: ${stack_status}, private S3, protected origin, active DynamoDB, and constrained Lambda."

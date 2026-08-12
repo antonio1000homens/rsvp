@@ -3,10 +3,8 @@ import test from 'node:test';
 import { tokenHash } from '../shared/identity.mjs';
 import { processPhoneRegistration } from '../lambda/phone-registration.mjs';
 import {
-  contentTypeFor,
   createHandler,
   hashPassword,
-  safeObjectKey,
   secretsMatch,
   signToken,
   verifyPassword,
@@ -239,16 +237,6 @@ const guest = (overrides = {}) => ({
   ...overrides,
 });
 
-test('safeObjectKey normalizes valid paths and rejects traversal', () => {
-  assert.equal(safeObjectKey('/'), 'index.html');
-  assert.equal(safeObjectKey('/assets/app.js'), 'assets/app.js');
-  assert.equal(safeObjectKey('/admin/'), 'admin/index.html');
-  assert.equal(safeObjectKey('/%2e%2e/private'), null);
-  assert.equal(safeObjectKey('/bad%2f..%2fsecret'), null);
-  assert.equal(safeObjectKey('/bad%encoding'), null);
-  assert.equal(safeObjectKey('/windows\\path'), null);
-});
-
 test('origin and signed tokens use timing-safe verification and expiry', () => {
   assert.equal(secretsMatch('same', 'same'), true);
   assert.equal(secretsMatch('short', 'longer'), false);
@@ -256,12 +244,6 @@ test('origin and signed tokens use timing-safe verification and expiry', () => {
   assert.equal(verifyToken(token, 'secret', fixedNow).type, 'test');
   assert.equal(verifyToken(token, 'wrong', fixedNow), null);
   assert.equal(verifyToken(token, 'secret', fixedNow + 2), null);
-});
-
-test('content types are constrained to known extensions', () => {
-  assert.equal(contentTypeFor('index.html'), 'text/html; charset=utf-8');
-  assert.equal(contentTypeFor('app.abcdef123456.js'), 'text/javascript; charset=utf-8');
-  assert.equal(contentTypeFor('unknown.bin'), 'application/octet-stream');
 });
 
 test('rejects requests without the origin secret before accessing storage', async () => {
@@ -467,6 +449,16 @@ test('a member can link another member through signed WhatsApp approval and sync
   });
 });
 
+test('link bootstrap returns the authenticated member candidates and current state in one response', async () => {
+  const memberA = guest({ nickname: 'Ana', identityStatus: 'confirmed' });
+  const memberB = guest({ pk: 'GUEST#123e4567-e89b-42d3-a456-426614174001', guestId: '123e4567-e89b-42d3-a456-426614174001', nickname: 'Bruno', identityStatus: 'confirmed' });
+  const session = signToken({ type: 'session', guestId: memberA.guestId, sessionVersion: 1, exp: fixedNow + 600 }, values['/rsvp/session-secret']);
+  const { handler } = makeHandler({ items: [memberA, memberB] });
+  const response = await handler(request('/api/link/bootstrap', { cookies: [`rsvp_session=${session}`] }));
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(JSON.parse(response.body), { candidates: [{ id: memberB.guestId, nickname: 'Bruno' }], status: 'none' });
+});
+
 test('a guest with an existing RSVP can retrieve it through WhatsApp without changing the Tasker payload', async () => {
   const profile = guest({ sender: 'António Costa', identityStatus: 'confirmed' });
   const response = { pk: `RSVP#${profile.guestId}`, sk: 'RESPONSE', entityType: 'rsvpResponse', guestId: profile.guestId, availableDays: ['19 December 2026'], guestCount: 2, mealTypes: ['dinner'], restaurantChoices: ['Por decidir'], dietaryRestrictions: 'Vegetariano' };
@@ -602,26 +594,4 @@ test('guest directory rejects missing CAPTCHA gate and accepts a valid Turnstile
     ],
   }), rawQueryString: 'q=ton' });
   assert.equal(accepted.statusCode, 200);
-});
-
-test('serves static files, SPA fallback, HEAD, and method constraints', async () => {
-  const { handler, requests } = makeHandler({
-    objects: {
-      'index.html': '<h1>RSVP</h1>',
-      'app.abcdef123456.js': 'console.log("ok")',
-    },
-  });
-  const asset = await handler(request('/app.abcdef123456.js'));
-  assert.equal(asset.statusCode, 200);
-  assert.equal(asset.headers['cache-control'], 'public, max-age=31536000, immutable');
-  assert.equal(Buffer.from(asset.body, 'base64').toString(), 'console.log("ok")');
-
-  const page = await handler(request('/my-rsvp'));
-  assert.equal(page.statusCode, 200);
-  assert.deepEqual(requests.slice(-2), ['my-rsvp', 'index.html']);
-
-  const head = await handler(request('/', { method: 'HEAD' }));
-  assert.equal(head.body, '');
-  const postStatic = await handler(request('/', { method: 'POST' }));
-  assert.equal(postStatic.statusCode, 405);
 });
