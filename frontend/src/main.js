@@ -51,6 +51,7 @@ const elements = {
   backButton: document.querySelector('#back-button'),
   sessionSection: document.querySelector('#session-section'),
   sessionIntro: document.querySelector('#session-intro'),
+  sessionIntroName: document.querySelector('#session-intro-name'),
   editResponseSection: document.querySelector('#edit-response-section'),
   sessionName: document.querySelector('#session-name'),
   sessionStatus: document.querySelector('#session-status'),
@@ -201,7 +202,9 @@ const showAuthenticated = (nickname, message = '', passkeyLabel = 'Criar chave d
   elements.sessionSection.hidden = false;
   elements.sessionIntro.hidden = false;
   elements.editResponseSection.hidden = false;
+  elements.editResponseSection.open = true;
   elements.sessionName.textContent = nickname;
+  elements.sessionIntroName.textContent = nickname;
   elements.sessionStatus.textContent = message;
   elements.passwordForm.reset();
   elements.addPasskey.textContent = passkeyLabel;
