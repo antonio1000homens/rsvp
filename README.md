@@ -1,6 +1,6 @@
 # RSVP
 
-Security-conscious dinner-party RSVP authentication app. Static assets live in a private S3 bucket and are served by a Node.js Lambda. Guest records, one-time challenges, and passkey public credentials use a small provisioned DynamoDB table.
+Security-conscious dinner-party RSVP authentication app. Static assets live in a private S3 bucket and are served by the dedicated `rsvp-site` Lambda. Interactive API and health traffic is handled by the separate `rsvp-app` API Lambda. Guest records, one-time challenges, and passkey public credentials use a small provisioned DynamoDB table.
 
 The Lambda Function URL is technically public but rejects every request that does not carry the secret origin header. The Cloudflare Worker is the only component given that secret. The direct Function URL is deliberately not committed to this repository.
 
@@ -41,19 +41,55 @@ Pull requests build, test, and lint without AWS credentials. Pushes to `master` 
 - Region: `eu-west-2`
 - Site bucket: `rsvp-243857182133-eu-west-2-site`
 - DynamoDB table: `rsvp`
-- Lambda: `rsvp-app`
+- API Lambda: `rsvp-app`
+- Site Lambda: `rsvp-site`
+- API reserved concurrency: 10
+- Site reserved concurrency: 10
 
 Cloudflare routing and Access configuration are intentionally separate from this AWS deployment.
 
 ## Registration and voting flows
 
-The diagram below shows the browser, Lambda, DynamoDB, SQS, Tasker, and Gemini paths. RSVP choices are retained in a 24-hour pending submission while each WhatsApp validation message is valid for 30 minutes. The phone queue carries only the Tasker sender, signed validation message, and the time the callback was accepted. After a successful save, the summary queue updates the public aggregate narrative asynchronously.
+The deployed architecture is split by traffic type. Cloudflare is the only public ingress: it selects the site origin for static paths and the API origin for `/api/*` and `/health`, and injects the private origin secret into both requests. The site Lambda has S3 read-only access; the API Lambda has DynamoDB, SSM, and queue permissions but no S3 access. Background phone validation and Gemini summaries are isolated from interactive API requests by separate SQS queues and processor Lambdas.
+
+```mermaid
+flowchart LR
+  Public[Browser / Tasker]
+  CF[Cloudflare Worker\ncustom domain + routing]
+  API[Lambda: rsvp-app\nAPI + health\nreserved concurrency 10]
+  Site[Lambda: rsvp-site\nstatic site\nreserved concurrency 10]
+  S3[(Private S3 site bucket)]
+  DB[(DynamoDB rsvp)]
+  PhoneQ[[SQS phone registration]]
+  Phone[Lambda phone processor]
+  SummaryQ[[SQS summary]]
+  Summary[Lambda summary processor]
+  Gemini[Gemini REST API]
+
+  Public --> CF
+  CF -->|/api/*, /health\nAPI_ORIGIN_URL + secret| API
+  CF -->|all other paths\nSITE_ORIGIN_URL + secret| Site
+  Site -->|read-only GetObject| S3
+  API --> DB
+  API -->|phone callback| PhoneQ
+  PhoneQ --> Phone
+  Phone --> DB
+  API -->|RSVP activity| SummaryQ
+  Phone -->|registration activity| SummaryQ
+  SummaryQ --> Summary
+  Summary -->|aggregate data only| Gemini
+  Summary --> DB
+```
+
+The diagram below shows the browser, Cloudflare Worker, separate site/API Lambdas, DynamoDB, SQS, Tasker, and Gemini paths. Static assets are read by `rsvp-site` from the private S3 bucket; `/api/*` and `/health` go to `rsvp-app`. RSVP choices are retained in a 24-hour pending submission while each WhatsApp validation message is valid for 30 minutes. The phone queue carries only the Tasker sender, signed validation message, and the time the callback was accepted. After a successful save, the summary queue updates the public aggregate narrative asynchronously.
 
 ```mermaid
 flowchart TD
   Browser[Guest browser]
   Worker[Cloudflare Worker\nadds origin secret]
-  App[Lambda: rsvp-app]
+  Site[Lambda: rsvp-site\nstatic site origin]
+  App[Lambda: rsvp-app\nAPI + health origin]
+  Bucket[(Private S3\nsite bucket)]
   Table[(DynamoDB: rsvp)]
   PhoneQueue[[SQS: rsvp-phone-registration]]
   PhoneWorker[Lambda: rsvp-phone-processor]
@@ -64,11 +100,15 @@ flowchart TD
   Gemini[Gemini REST API]
   Admin[Admin browser]
 
-  Browser -->|CAPTCHA, optional trivia, guest selection| Worker
-  Worker --> App
+  Browser -->|static paths| Worker
+  Worker -->|SITE_ORIGIN_URL| Site
+  Site -->|GetObject| Bucket
+  Site -->|HTML, hashed assets, SPA fallback| Worker
+  Browser -->|/api/* and /health| Worker
+  Worker -->|API_ORIGIN_URL| App
   App -->|guest profile, credentials, RSVP| Table
 
-  Browser -->|new availability + preferences| Worker
+  Browser -->|CAPTCHA, optional trivia, guest selection, voting| Worker
   App -->|24-hour pending response + 30-minute challenge| Table
   App -->|signed VALIDATION link| Browser
   Browser --> WhatsApp
@@ -80,8 +120,8 @@ flowchart TD
   PhoneWorker -->|verify HMAC, nonce, sender| Table
   PhoneWorker -->|successful registration| Table
 
-  Table -->|successful RSVP mutation| SummaryQueue
-  Table -->|successful WhatsApp registration| SummaryQueue
+  App -->|successful RSVP mutation| SummaryQueue
+  PhoneWorker -->|successful WhatsApp registration| SummaryQueue
   SummaryQueue --> SummaryWorker
   SummaryWorker -->|aggregate votes + public nickname only| Gemini
   Gemini --> SummaryWorker
@@ -99,7 +139,7 @@ flowchart TD
   Worker --> App
 ```
 
-The normal guest journey, including the WhatsApp approval path, is shown below. Every browser and Tasker API request is proxied through the Cloudflare Worker; the Lambda Function URL is never called directly.
+The normal guest journey, including the WhatsApp approval path, is shown below. Static browser paths are proxied to `rsvp-site`; API and Tasker requests are proxied to `rsvp-app`. The Lambda Function URLs are never called directly.
 
 ```mermaid
 sequenceDiagram
@@ -107,7 +147,9 @@ sequenceDiagram
   actor Guest
   participant Browser as Guest browser
   participant Worker as Cloudflare Worker
-  participant App as Lambda: rsvp-app
+  participant Site as Lambda: rsvp-site
+  participant App as Lambda: rsvp-app API
+  participant Bucket as Private S3 site bucket
   participant Turnstile as Cloudflare Turnstile
   participant Table as DynamoDB: rsvp
   participant WhatsApp as WhatsApp
@@ -116,14 +158,16 @@ sequenceDiagram
   participant PhoneWorker as Lambda: phone processor
 
   Guest->>Browser: Open calcada2026.pt
-  Browser->>Worker: Load site and API requests
-  Worker->>App: Proxy with origin secret
-  App-->>Worker: Static site / API response
+  Browser->>Worker: Load static site
+  Worker->>Site: Proxy with origin secret
+  Site->>Bucket: Get index.html/assets
+  Bucket-->>Site: Private object
+  Site-->>Worker: Static site / SPA fallback
   Worker-->>Browser: Response
 
   Guest->>Browser: Complete CAPTCHA
   Browser->>Worker: Request validation gate with Turnstile token
-  Worker->>App: Proxy request with Turnstile token
+  Worker->>App: Proxy request with origin secret
   App->>Turnstile: Validate token server-side
   Turnstile-->>App: Valid
   App-->>Worker: CAPTCHA gate cookie and trivia state
@@ -179,11 +223,13 @@ sequenceDiagram
   end
 ```
 
+Link setup uses one authenticated bootstrap request: `GET /api/link/bootstrap` returns both the eligible candidates and the current link state. The older `/api/link/candidates` and `GET /api/link` endpoints remain available for compatibility. The browser keeps `/api/link` synchronous because it must return the transactional link state and WhatsApp QR/deep link immediately; Gemini summary generation remains isolated in `rsvp-summary-processor` behind SQS.
+
 The secure repeat-vote link is a separate access path: it does not require trivia, but it is scoped to one guest, expires after 30 days, and is revoked when a replacement link is generated. Once that guest has a password or passkey, possession of the link alone is insufficient to sign in.
 
 ## Cloudflare and TLS
 
-`calcada2026.pt` and `www.calcada2026.pt` are configured as Worker custom domains. The Worker replaces any client-supplied origin credential with its secret value and proxies only to the expected HTTPS Lambda Function URL in `eu-west-2`.
+`calcada2026.pt` and `www.calcada2026.pt` are configured as Worker custom domains. The Worker replaces any client-supplied origin credential with its secret value and proxies only to the two expected HTTPS Lambda Function URLs in `eu-west-2`: `API_ORIGIN_URL` for `/api/*` and `/health`, and `SITE_ORIGIN_URL` for all other paths.
 
 Once the domain is active in Cloudflare and delegated to its assigned nameservers, initialize the Worker secrets and deploy:
 
