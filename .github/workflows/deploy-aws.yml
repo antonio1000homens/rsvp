@@ -98,6 +98,8 @@ jobs:
         run: aws cloudformation validate-template --template-body file://cloudformation/rsvp.yaml >/dev/null
       - name: Deploy application stack
         run: bash scripts/deploy-aws.sh
+      - name: Install Worker deployment dependencies
+        run: npm ci --omit=optional
       - name: Configure and deploy Cloudflare Worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
