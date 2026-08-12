@@ -273,6 +273,10 @@ Resources:
                   - sqs:GetQueueAttributes
                   - cloudwatch:DescribeAlarms
                 Resource: '*'
+              - Sid: ReadWorkerOriginSecret
+                Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter/rsvp/origin-secret
 
 Outputs:
   GitHubDeployRoleArn:

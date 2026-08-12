@@ -39,24 +39,27 @@ cd "${ROOT_DIR}"
 if [ "${CONFIGURE_SECRETS}" = 'true' ]; then
   command -v aws >/dev/null 2>&1 || { echo 'Missing required command: aws' >&2; exit 1; }
 
-  aws_cli cloudformation describe-stacks \
+  api_origin_url="$(aws_cli cloudformation describe-stacks \
     --stack-name "${STACK_NAME}" \
     --query "Stacks[0].Outputs[?OutputKey=='ApiFunctionUrl'].OutputValue | [0]" \
-    --output text \
-    | wrangler_cli secret put API_ORIGIN_URL --config "${CONFIG_FILE}"
-
-  aws_cli cloudformation describe-stacks \
+    --output text)"
+  site_origin_url="$(aws_cli cloudformation describe-stacks \
     --stack-name "${STACK_NAME}" \
     --query "Stacks[0].Outputs[?OutputKey=='SiteFunctionUrl'].OutputValue | [0]" \
-    --output text \
-    | wrangler_cli secret put SITE_ORIGIN_URL --config "${CONFIG_FILE}"
-
-  aws_cli ssm get-parameter \
+    --output text)"
+  origin_secret="$(aws_cli ssm get-parameter \
     --name /rsvp/origin-secret \
     --with-decryption \
     --query Parameter.Value \
-    --output text \
-    | wrangler_cli secret put ORIGIN_SECRET --config "${CONFIG_FILE}"
+    --output text)"
+  [ -n "${api_origin_url}" ] && [ "${api_origin_url}" != 'None' ] || { echo 'Missing API Function URL output' >&2; exit 1; }
+  [ -n "${site_origin_url}" ] && [ "${site_origin_url}" != 'None' ] || { echo 'Missing site Function URL output' >&2; exit 1; }
+  [ -n "${origin_secret}" ] && [ "${origin_secret}" != 'None' ] || { echo 'Missing RSVP origin secret' >&2; exit 1; }
+
+  printf '%s' "${api_origin_url}" | wrangler_cli secret put API_ORIGIN_URL --config "${CONFIG_FILE}"
+  printf '%s' "${site_origin_url}" | wrangler_cli secret put SITE_ORIGIN_URL --config "${CONFIG_FILE}"
+  printf '%s' "${origin_secret}" | wrangler_cli secret put ORIGIN_SECRET --config "${CONFIG_FILE}"
+  unset origin_secret
 fi
 
 wrangler_cli deploy --config "${CONFIG_FILE}"
