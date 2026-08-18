@@ -1,0 +1,38 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Serve frontend (python)",
+      "type": "shell",
+      "command": "python3",
+      "args": [
+        "-m",
+        "http.server",
+        "4173",
+        "--directory",
+        "frontend"
+      ],
+      "isBackground": true,
+      "problemMatcher": {
+        "owner": "custom",
+        "fileLocation": [
+          "relative",
+          "${workspaceFolder}"
+        ],
+        "pattern": {
+          "regexp": "."
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".",
+          "endsPattern": "Serving HTTP on"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "clear": false
+      }
+    }
+  ]
+}
